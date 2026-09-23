@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}{{ '编辑任务' if task else '添加任务' }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('index') }}">← 返回任务</a><div class="heading"><div><div class="eyebrow">SCHEDULE</div><h1>{{ '编辑任务' if task else '添加定时任务' }}</h1><p class="muted">填写解析域名、目标 IP 和执行时间。</p></div></div>
+<div class="card form-card"><form method="post" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>完整解析域名<input name="domain" type="text" value="{{ request.form.get('domain', task.domain if task else '') }}" placeholder="home.example.com" required><span class="hint">请输入已托管在华为云 DNS 中的公网域名或其子域名。</span></label>
+<label>目标 IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', task.ip if task else '') }}" placeholder="203.0.113.10" required><span class="hint">支持 IPv4 和 IPv6，自动使用 A 或 AAAA 记录。</span></label>
+<div class="form-grid"><label>首次执行日期和时间<input name="run_at" type="datetime-local" value="{{ request.form.get('run_at', suggested.strftime('%Y-%m-%dT%H:%M')) }}" required><span class="hint">时区：{{ tz_name }}</span></label><label>执行频率<select name="schedule"><option value="once" {{ 'selected' if request.form.get('schedule', task.schedule if task else 'once') == 'once' else '' }}>仅执行一次</option><option value="daily" {{ 'selected' if request.form.get('schedule', task.schedule if task else 'once') == 'daily' else '' }}>每天同一时间</option></select></label></div>
+<div class="form-actions"><button class="button primary">{{ '保存修改' if task else '创建任务' }}</button><a class="button subtle" href="{{ url_for('index') }}">取消</a></div></form></div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}执行日志{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('index') }}">← 返回任务</a><div class="heading"><div><div class="eyebrow">HISTORY</div><h1>执行日志</h1><p class="muted">{{ task.domain }} → {{ task.ip }}</p></div><form method="post" action="{{ url_for('run_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button primary">立即执行一次</button></form></div>
+<section class="card table-card"><div class="section-head"><h2>执行记录</h2><span class="muted">最近 200 条</span></div>{% if logs %}<div class="table-scroll"><table><thead><tr><th>执行时间</th><th>原 IP</th><th>目标 IP</th><th>结果</th><th>详情</th></tr></thead><tbody>{% for log in logs %}<tr><td>{{ log.executed_at|localtime }}</td><td class="mono">{{ log.old_ip or '—' }}</td><td class="mono">{{ log.new_ip }}</td><td><span class="pill {{ log.result }}">{{ '成功' if log.result == 'success' else '失败' }}</span></td><td>{{ log.message }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty"><h3>尚无执行记录</h3><p>任务执行后，时间与 IP 变更会显示在这里。</p></div>{% endif %}</section>
+{% endblock %}
