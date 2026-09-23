@@ -2,6 +2,14 @@
 
 华为云 DNS 管理面板。支持 A、AAAA、CNAME 记录，单次或每日定时任务、循环端口探测任务，以及立即执行、暂停、开启、编辑、删除和执行日志。
 
+## Windows 安装版
+
+下载并运行 [HWddns-Windows-Setup.exe](https://github.com/panhui/HWddns/releases/latest/download/HWddns-Windows-Setup.exe)。支持 64 位 Windows，无需 Docker、Python 或管理员权限。安装完成后从开始菜单启动 HWddns，程序会自动打开浏览器中的 `http://127.0.0.1:6006`，首次密码为 **Qwer1234**。
+
+Windows 版只监听本机地址。请保持启动窗口打开，关闭窗口会停止定时任务。首次运行会在 `%LOCALAPPDATA%\HWddns` 创建配置和数据库，升级或卸载程序不会清除这些数据。可修改 `%LOCALAPPDATA%\HWddns\config.env` 中的 `ADMIN_PASSWORD`、`PORT` 和 `TZ`，然后重启程序。安装包未进行商业代码签名，Windows 可能显示“未知发布者”提示。
+
+源码仓库的 [Windows 构建流程](https://github.com/panhui/HWddns/actions/workflows/windows-installer.yml) 会在发布标签时生成并检查安装包。
+
 ## 一键部署到 Linux
 
 需要一台可访问 GitHub、Docker Hub 和 PyPI 的 Linux 服务器，并安装 `curl`。以 **root 用户**登录服务器后运行（无需 `sudo`）：

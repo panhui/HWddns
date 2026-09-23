@@ -2,6 +2,7 @@ import ipaddress
 import os
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -28,7 +29,9 @@ if not PASSWORD or not SECRET or not KEY:
     raise RuntimeError("请设置 ADMIN_PASSWORD、APP_SECRET 和 DATA_KEY")
 FERNET = Fernet(KEY.encode())
 
-app = Flask(__name__)
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+app = Flask(__name__, template_folder=str(RESOURCE_ROOT / "templates"),
+            static_folder=str(RESOURCE_ROOT / "static"))
 app.secret_key = SECRET
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 if os.environ.get("COOKIE_SECURE") == "1":
@@ -131,7 +134,7 @@ def globals_for_template():
 
 @app.get("/health")
 def health():
-    return "ok"
+    return "HWddns ok"
 
 
 _login_attempts = {}
@@ -453,7 +456,11 @@ def scheduler_loop():
         time.sleep(10)
 
 
+def start_server(host="0.0.0.0", port=6006):
+    threading.Thread(target=scheduler_loop, daemon=True).start()
+    serve(app, host=host, port=port, threads=8)
+
+
 init_db()
 if __name__ == "__main__":
-    threading.Thread(target=scheduler_loop, daemon=True).start()
-    serve(app, host="0.0.0.0", port=6006, threads=8)
+    start_server()
