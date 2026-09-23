@@ -28,6 +28,7 @@ jobs:
         run: >-
           python -m PyInstaller --noconfirm --clean --onedir --windowed
           --name HWddns --collect-all tzdata
+          --hidden-import six --hidden-import six.moves.urllib.parse
           --add-data "templates:templates" --add-data "static:static"
           windows_launcher.py
       - name: Check bundled app
@@ -51,8 +52,15 @@ jobs:
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           $installed = Join-Path $env:LOCALAPPDATA 'Programs\HWddns\HWddns.exe'
           if (!(Test-Path $installed)) { throw "Installed app not found: $installed" }
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:LOCALAPPDATA 'HWddns') -Recurse -Force -ErrorAction SilentlyContinue
           & $installed --self-test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+            $errorFile = Join-Path $env:TEMP 'hwddns-self-test-error.txt'
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            exit $LASTEXITCODE
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: HWddns-Windows-Setup

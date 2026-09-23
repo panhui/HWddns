@@ -3,10 +3,13 @@
 import os
 import queue
 import secrets
+import socket
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
+import traceback
 import urllib.error
 import urllib.request
 import webbrowser
@@ -77,6 +80,25 @@ def self_test():
         user_session["csrf"] = "test"
     assert client.get("/").status_code == 200
     assert client.get("/tasks/probe/new").status_code == 200
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    errors = queue.Queue()
+
+    def run_backend():
+        try:
+            app.start_server(host="127.0.0.1", port=port)
+        except Exception:
+            errors.put(traceback.format_exc())
+
+    threading.Thread(target=run_backend, daemon=True).start()
+    for _ in range(50):
+        if not errors.empty():
+            raise RuntimeError(errors.get_nowait())
+        if is_running(port):
+            return
+        time.sleep(0.2)
+    raise RuntimeError("服务未在 10 秒内启动")
 
 
 def main():
@@ -85,7 +107,7 @@ def main():
             self_test()
         except Exception as exc:
             error = Path(tempfile.gettempdir()) / "hwddns-self-test-error.txt"
-            error.write_text(repr(exc), encoding="utf-8")
+            error.write_text(traceback.format_exc(), encoding="utf-8")
             raise SystemExit(1) from exc
         return
     try:
@@ -123,7 +145,9 @@ def main():
             import app
             app.start_server(host="127.0.0.1", port=port)
         except Exception as exc:
-            errors.put(str(exc) or type(exc).__name__)
+            log_path = path.parent / "startup-error.log"
+            log_path.write_text(traceback.format_exc(), encoding="utf-8")
+            errors.put(f"{exc}\n详细信息：{log_path}")
 
     threading.Thread(target=run_backend, daemon=True).start()
     attempts = 0
