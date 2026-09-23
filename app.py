@@ -371,7 +371,7 @@ def execute_task(task_id, manual=False):
             with db() as con:
                 setting = con.execute("SELECT * FROM settings WHERE id=1").fetchone()
             if not setting:
-                raise ValueError("请先设置华为云 AK 和 SK")
+                raise ValueError("请先设置 DNS 服务的 AK 和 SK")
             old_ip, action = set_record(FERNET.decrypt(setting["ak"].encode()).decode(),
                                         FERNET.decrypt(setting["sk"].encode()).decode(),
                                         setting["region"], task["domain"], task["ip"], task["record_type"])

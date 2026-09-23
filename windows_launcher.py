@@ -1,4 +1,4 @@
-"""Windows desktop launcher for the bundled local HWddns server."""
+"""Windows desktop launcher for the bundled HWddns server."""
 
 import os
 import queue
@@ -33,6 +33,7 @@ def configure():
         "DATA_KEY": Fernet.generate_key().decode(),
         "TZ": "Asia/Shanghai",
         "PORT": "6006",
+        "HOST": "0.0.0.0",
     }
     try:
         with path.open("x", encoding="utf-8") as out:
@@ -58,7 +59,10 @@ def configure():
     port = int(values.get("PORT", "6006"))
     if not 1 <= port <= 65535:
         raise ValueError("PORT 必须在 1 到 65535 之间")
-    return path, port
+    host = values.get("HOST", "0.0.0.0")
+    if host not in ("0.0.0.0", "127.0.0.1"):
+        raise ValueError("HOST 只能设置为 0.0.0.0 或 127.0.0.1")
+    return path, port, host
 
 
 def is_running(port):
@@ -70,7 +74,7 @@ def is_running(port):
 
 
 def self_test():
-    configure()
+    _, _, host = configure()
     import app
     client = app.app.test_client()
     assert client.get("/health").data == b"HWddns ok"
@@ -87,7 +91,7 @@ def self_test():
 
     def run_backend():
         try:
-            app.start_server(host="127.0.0.1", port=port)
+            app.start_server(host=host, port=port)
         except Exception:
             errors.put(traceback.format_exc())
 
@@ -111,7 +115,7 @@ def main():
             raise SystemExit(1) from exc
         return
     try:
-        path, port = configure()
+        path, port, host = configure()
     except Exception as exc:
         messagebox.showerror("HWddns 启动失败", str(exc))
         return
@@ -122,8 +126,8 @@ def main():
         return
 
     root = tk.Tk()
-    root.title("HWddns · 华为云解析管理")
-    root.geometry("410x230")
+    root.title("HWddns · DNS 解析管理")
+    root.geometry("450x260")
     root.resizable(False, False)
     root.configure(bg="#f5f7fb")
     tk.Label(root, text="HWddns", font=("Microsoft YaHei UI", 22, "bold"),
@@ -136,14 +140,16 @@ def main():
     tk.Button(root, text="打开管理面板", command=lambda: webbrowser.open(url),
               font=("Microsoft YaHei UI", 10), padx=14, pady=5).pack()
     tk.Label(root, text="保持此窗口打开，定时任务才会继续运行。", font=("Microsoft YaHei UI", 9),
-             fg="#8994a3", bg="#f5f7fb").pack(pady=(14, 0))
+             fg="#8994a3", bg="#f5f7fb").pack(pady=(12, 0))
+    tk.Label(root, text=f"外网访问还需放行 Windows 防火墙和安全组 TCP {port}。",
+             font=("Microsoft YaHei UI", 9), fg="#8994a3", bg="#f5f7fb").pack(pady=(4, 0))
 
     errors = queue.Queue()
 
     def run_backend():
         try:
             import app
-            app.start_server(host="127.0.0.1", port=port)
+            app.start_server(host=host, port=port)
         except Exception as exc:
             log_path = path.parent / "startup-error.log"
             log_path.write_text(traceback.format_exc(), encoding="utf-8")

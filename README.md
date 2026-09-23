@@ -1,12 +1,23 @@
 # HWddns
 
-华为云 DNS 管理面板。支持 A、AAAA、CNAME 记录，单次或每日定时任务、循环端口探测任务，以及立即执行、暂停、开启、编辑、删除和执行日志。
+DNS 管理面板。支持 A、AAAA、CNAME 记录，单次或每日定时任务、循环端口探测任务，以及立即执行、暂停、开启、编辑、删除和执行日志。
 
 ## Windows 安装版
 
 下载并运行 [HWddns-Windows-Setup.exe](https://github.com/panhui/HWddns/releases/latest/download/HWddns-Windows-Setup.exe)。支持 64 位 Windows，无需 Docker、Python 或管理员权限。安装完成后从开始菜单启动 HWddns，程序会自动打开浏览器中的 `http://127.0.0.1:6006`，首次密码为 **Qwer1234**。
 
-Windows 版只监听本机地址。请保持启动窗口打开，关闭窗口会停止定时任务。首次运行会在 `%LOCALAPPDATA%\HWddns` 创建配置和数据库，升级或卸载程序不会清除这些数据。可修改 `%LOCALAPPDATA%\HWddns\config.env` 中的 `ADMIN_PASSWORD`、`PORT` 和 `TZ`，然后重启程序。安装包未进行商业代码签名，Windows 可能显示“未知发布者”提示。
+Windows 版默认监听所有网卡（`HOST=0.0.0.0`）。请保持启动窗口打开，关闭窗口会停止定时任务。首次运行会在 `%LOCALAPPDATA%\HWddns` 创建配置和数据库，升级或卸载程序不会清除这些数据。可修改 `%LOCALAPPDATA%\HWddns\config.env` 中的 `ADMIN_PASSWORD`、`PORT`、`HOST` 和 `TZ`，然后重启程序。将 `HOST` 设为 `127.0.0.1` 可限制为本机访问。安装包未进行商业代码签名，Windows 可能显示“未知发布者”提示。
+
+### 从外网访问 Windows 服务器
+
+1. 先修改配置文件中的默认管理员密码并重启程序。直接通过 HTTP 登录会以明文在网络上传输密码，公网使用建议配 HTTPS 反向代理。
+2. 在 Windows 服务器上以**管理员身份**打开 PowerShell，执行以下命令放行 TCP 6006：
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "HWddns TCP 6006" -Direction Inbound -Protocol TCP -LocalPort 6006 -Action Allow
+   ```
+
+3. 在服务器提供商的安全组或网络防火墙中放行入站 TCP 6006；可按需要限制来源 IP。之后从另一台设备访问 `http://服务器公网IP:6006`。如果自定义了 `PORT`，上述规则和网址中的端口也要一起修改。
 
 源码仓库的 [Windows 构建流程](https://github.com/panhui/HWddns/actions/workflows/windows-installer.yml) 会在发布标签时生成并检查安装包。
 
@@ -18,7 +29,7 @@ Windows 版只监听本机地址。请保持启动窗口打开，关闭窗口会
 curl -fsSL https://raw.githubusercontent.com/panhui/HWddns/main/deploy.sh | bash
 ```
 
-脚本会安装 Docker（如果缺少）、拉取本仓库、生成应用密钥并启动容器。访问 `http://服务器IP:6006`，初始管理员密码为 **Qwer1234**。首次登录后，在“云账号设置”中填写华为云 Access Key ID 和 Secret Access Key，再添加任务。如果当前不是 root 用户，请先用 `su -` 切换到 root；安装了 `sudo` 的服务器也可在命令末尾使用 `| sudo bash`。
+脚本会安装 Docker（如果缺少）、拉取本仓库、生成应用密钥并启动容器。访问 `http://服务器IP:6006`，初始管理员密码为 **Qwer1234**。首次登录后，在“云账号设置”中填写 DNS 服务的 Access Key ID 和 Secret Access Key，再添加任务。如果当前不是 root 用户，请先用 `su -` 切换到 root；安装了 `sudo` 的服务器也可在命令末尾使用 `| sudo bash`。
 
 **公网使用前请修改密码并配置 HTTPS。** 密码位于 `/opt/hwddns/.env` 的 `ADMIN_PASSWORD`；修改后在 `/opt/hwddns` 运行 `docker compose up -d --force-recreate`。可在同一文件修改 `PORT` 和 `TZ`。如果 HTTPS 由反向代理提供，可设置 `COOKIE_SECURE=1` 后重启。
 
@@ -26,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/panhui/HWddns/main/deploy.sh | bash
 
 ## 使用说明
 
-1. 使用具备 DNS 公网域名查看、记录集查看、创建和修改权限的华为云 AK/SK。面板会加密保存凭据，不在页面回显。
+1. 使用具备 DNS 公网域名查看、记录集查看、创建和修改权限的 AK/SK。面板会加密保存凭据，不在页面回显。
 2. **定时任务：**输入要修改的完整域名，选择记录类型（默认 A）、目标 IPv4 / IPv6 / CNAME 域名、首次执行时间及频率。时间使用 `.env` 中配置的时区，默认 `Asia/Shanghai`。
 3. **探测任务：**填写要探测的域名和 TCP 端口、要修改的解析域名（可留空，与探测域名相同）、目标 IP 或 CNAME 域名，以及循环间隔（1–1440 分钟）。首次探测会在创建后开始。连续两次 TCP 连接都失败时，才会把解析切换到目标值；连接成功时不修改 DNS。
 4. 任务可暂停或开启。暂停会停止自动执行；“立即执行”仍可手动运行。重新开启后，到期任务会尽快执行。单次任务按设定时间执行后结束；每日任务按同一当地时间继续执行。
@@ -54,6 +65,6 @@ docker compose up -d --build
 
 ## 技术说明
 
-应用使用 Flask、Waitress、SQLite 和华为云官方 Python SDK。服务以单个进程运行，后台每 10 秒检查到期任务。SQLite 数据库存于 Docker 数据卷，容器重建后仍保留。AK/SK 通过 Fernet 加密，密钥只存于 `.env`。不要丢失 `DATA_KEY`，否则无法解密已有凭据。
+应用使用 Flask、Waitress、SQLite 和 DNS 服务的 Python SDK。服务以单个进程运行，后台每 10 秒检查到期任务。SQLite 数据库存于 Docker 数据卷，容器重建后仍保留。AK/SK 通过 Fernet 加密，密钥只存于 `.env`。不要丢失 `DATA_KEY`，否则无法解密已有凭据。
 
-华为云接口参考：[查询公网域名](https://support.huaweicloud.com/intl/en-us/api-dns/dns_api_62003.html)、[查询记录集](https://support.huaweicloud.com/api-dns/ListRecordSetsByZone.html)、[创建记录集](https://support.huaweicloud.com/api-dns/CreateRecordSet.html)、[修改记录集](https://support.huaweicloud.com/api-dns/UpdateRecordSet.html)。
+接口参考：[查询公网域名](https://support.huaweicloud.com/intl/en-us/api-dns/dns_api_62003.html)、[查询记录集](https://support.huaweicloud.com/api-dns/ListRecordSetsByZone.html)、[创建记录集](https://support.huaweicloud.com/api-dns/CreateRecordSet.html)、[修改记录集](https://support.huaweicloud.com/api-dns/UpdateRecordSet.html)。

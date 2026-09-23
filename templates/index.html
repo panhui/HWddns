@@ -2,7 +2,7 @@
 {% block title %}任务总览{% endblock %}
 {% block content %}
 <div class="heading"><div><div class="eyebrow">DNS AUTOMATION</div><h1>解析任务</h1><p class="muted">定时更新解析，或在端口探测不通时切换到备用目标。</p></div><div class="heading-actions"><a class="button subtle" href="{{ url_for('new_probe_task') }}">＋ 添加探测任务</a><a class="button primary" href="{{ url_for('new_task') }}">＋ 添加定时任务</a></div></div>
-{% if not configured %}<div class="notice">开始前请先 <a href="{{ url_for('settings') }}">设置华为云 Access Key</a>。</div>{% endif %}
+{% if not configured %}<div class="notice">开始前请先 <a href="{{ url_for('settings') }}">设置 DNS 访问凭据</a>。</div>{% endif %}
 <div class="stats"><div class="stat card"><span>任务总数</span><strong>{{ tasks|length }}</strong></div><div class="stat card"><span>已开启</span><strong>{{ tasks|selectattr('enabled')|list|length }}</strong></div><div class="stat card"><span>时区</span><strong class="smaller">{{ tz_name }}</strong></div></div>
 <section class="card table-card"><div class="section-head"><h2>全部任务</h2><span class="muted">可随时暂停、开启或立即执行</span></div>
 {% if tasks %}<div class="table-scroll"><table><thead><tr><th>解析域名</th><th>目标 IP / 域名</th><th>方式</th><th>下次执行</th><th>状态</th><th>操作</th></tr></thead><tbody>

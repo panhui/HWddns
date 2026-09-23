@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}HWddns{% endblock %} · 华为云 DNS</title>
+  <title>{% block title %}HWddns{% endblock %} · DNS 管理</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   {% if session.authenticated %}
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-icon">↗</span> HWddns <small>华为云解析管理</small></a>
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-icon">↗</span> HWddns <small>DNS 解析管理</small></a>
     <nav><a href="{{ url_for('index') }}">任务</a><a href="{{ url_for('settings') }}">云账号设置</a><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-button">退出</button></form></nav>
   </header>
   {% endif %}

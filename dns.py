@@ -48,14 +48,14 @@ def set_record(ak, sk, region, domain, target, kind=None):
     zones = [z for z in _pages(client.list_public_zones, ListPublicZonesRequest(), "zones")
              if fqdn == z.name.lower() or fqdn.endswith("." + z.name.lower())]
     if not zones:
-        raise ValueError("华为云账号中未找到该域名所属的公网域名")
+        raise ValueError("当前账号中未找到该域名所属的公网域名")
     zone = max(zones, key=lambda z: len(z.name))
     request = ListRecordSetsByZoneRequest(zone_id=zone.id)
     relevant = [r for r in _pages(client.list_record_sets_by_zone, request, "recordsets")
                 if r.name.lower() == fqdn and r.type in ("A", "AAAA", "CNAME")]
     matches = [r for r in relevant if r.type == kind]
     if len(matches) > 1:
-        raise ValueError("此域名存在多条相同类型的解析线路，请先在华为云控制台处理")
+        raise ValueError("此域名存在多条相同类型的解析线路，请先在 DNS 控制台处理")
     if kind == "CNAME" and len(relevant) > len(matches):
         if len(relevant) != 1 or matches:
             raise ValueError("此域名存在其他 A/AAAA 记录，无法安全切换为 CNAME")
