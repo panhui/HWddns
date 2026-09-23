@@ -3,7 +3,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py dns.py ./
+COPY app.py dns.py probe.py ./
 COPY templates ./templates
 COPY static ./static
 RUN useradd -u 10001 -r -m app && mkdir /data && chown app:app /data

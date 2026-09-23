@@ -51,6 +51,29 @@ class DnsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "多条"):
                 dns.set_record("a", "s", "cn-north-4", "home.example.com", "203.0.113.2")
 
+    def test_cname_create_and_switch_from_a(self):
+        client = FakeClient([])
+        with patch.object(dns, "client_for", return_value=client):
+            dns.set_record("a", "s", "cn-north-4", "home.example.com", "backup.example.com", "CNAME")
+        self.assertEqual(client.created.body.records, ["backup.example.com."])
+        self.assertEqual(client.created.body.type, "CNAME")
+        record = SimpleNamespace(id="record-id", name="home.example.com.", type="A", ttl=600,
+                                 records=["203.0.113.10"])
+        client = FakeClient([record])
+        with patch.object(dns, "client_for", return_value=client):
+            dns.set_record("a", "s", "cn-north-4", "home.example.com", "backup.example.com", "CNAME")
+        self.assertEqual(client.updated.body.type, "CNAME")
+        self.assertEqual(client.updated.body.records, ["backup.example.com."])
+
+    def test_cname_same_value_is_noop(self):
+        record = SimpleNamespace(id="record-id", name="home.example.com.", type="CNAME", ttl=300,
+                                 records=["backup.example.com."])
+        client = FakeClient([record])
+        with patch.object(dns, "client_for", return_value=client):
+            _, action = dns.set_record("a", "s", "cn-north-4", "home.example.com", "backup.example.com", "CNAME")
+        self.assertEqual(action, "unchanged")
+        self.assertIsNone(client.updated)
+
 
 if __name__ == "__main__":
     unittest.main()
