@@ -40,8 +40,10 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with self.panel.db() as con:
             stored = con.execute("SELECT * FROM settings").fetchone()
-            self.assertNotIn("AK", stored["ak"])
-            self.assertNotIn("SK", stored["sk"])
+            self.assertNotEqual(stored["ak"], "AK")
+            self.assertNotEqual(stored["sk"], "SK")
+            self.assertEqual(self.panel.FERNET.decrypt(stored["ak"].encode()), b"AK")
+            self.assertEqual(self.panel.FERNET.decrypt(stored["sk"].encode()), b"SK")
         future = (datetime.now(self.panel.TZ) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
         response = self.client.post("/tasks/new", data={"csrf": self.csrf, "domain": "home.example.com",
                                                         "ip": "203.0.113.10", "schedule": "once", "run_at": future})
