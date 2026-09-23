@@ -1,5 +1,5 @@
 #define MyAppName "HWddns"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.3.1"
 
 [Setup]
 AppId=HWddns.Panhui.Windows
@@ -20,9 +20,6 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\HWddns.exe
 CloseApplications=yes
 RestartApplications=no
-
-[Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他选项:"; Flags: unchecked
