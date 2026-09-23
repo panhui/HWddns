@@ -59,6 +59,13 @@ class PanelTests(unittest.TestCase):
         page = self.client.get(f"/tasks/{task_id}/logs").get_data(as_text=True)
         self.assertIn("203.0.113.9", page)
         self.assertIn("203.0.113.10", page)
+        self.assertIn("清空日志", page)
+        self.assertEqual(self.client.post(f"/tasks/{task_id}/logs/clear").status_code, 403)
+        self.assertEqual(self.client.post(f"/tasks/{task_id}/logs/clear",
+                                          data={"csrf": self.csrf}).status_code, 302)
+        with self.panel.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 0)
+            self.assertIsNotNone(con.execute("SELECT id FROM tasks WHERE id=?", (task_id,)).fetchone())
         response = self.client.post(f"/tasks/{task_id}/delete", data={"csrf": self.csrf})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get(f"/tasks/{task_id}/logs").status_code, 404)
@@ -102,8 +109,10 @@ class PanelTests(unittest.TestCase):
             self.assertTrue(self.panel.execute_task(task_id))
             cloud.assert_not_called()
         with self.panel.db() as con:
-            log = con.execute("SELECT * FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
-            self.assertEqual((log["result"], log["new_ip"]), ("healthy", "—"))
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 0)
+            task = con.execute("SELECT last_run_at,next_run_at FROM tasks WHERE id=?", (task_id,)).fetchone()
+            self.assertIsNotNone(task["last_run_at"])
+            self.assertIsNotNone(task["next_run_at"])
             con.execute("INSERT INTO settings VALUES (1,?,?,?)", (
                 self.panel.FERNET.encrypt(b"AK").decode(),
                 self.panel.FERNET.encrypt(b"SK").decode(), "cn-north-4"))
@@ -115,6 +124,11 @@ class PanelTests(unittest.TestCase):
             log = con.execute("SELECT * FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
             self.assertEqual(log["old_ip"], "primary.example.com.")
             self.assertIn("探测不通", log["message"])
+            con.execute("INSERT INTO logs (task_id,executed_at,old_ip,new_ip,result,message) VALUES (?,?,?,?,?,?)",
+                        (task_id, self.panel.utcnow(), "—", "—", "healthy", "旧版探测正常记录"))
+        self.panel.init_db()
+        with self.panel.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 1)
 
     def test_pause_stops_automatic_run(self):
         future = (datetime.now(self.panel.TZ) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")

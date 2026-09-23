@@ -1,5 +1,5 @@
 #define MyAppName "HWddns"
-#define MyAppVersion "0.3.4"
+#define MyAppVersion "0.3.5"
 
 [Setup]
 AppId=HWddns.Panhui.Windows

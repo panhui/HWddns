@@ -92,6 +92,9 @@ def init_db():
                 con.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
         con.execute("UPDATE tasks SET record_type='AAAA' WHERE instr(ip, ':') > 0 AND record_type='A'")
         con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_enabled_due ON tasks(enabled, next_run_at)")
+        # Older versions stored a row for every successful probe. Remove those
+        # rows once upgraded and leave failure/change history intact.
+        con.execute("DELETE FROM logs WHERE result='healthy'")
         # A restart may interrupt a cloud request. Rechecking DNS is safe because
         # set_record is idempotent and prevents a task from staying stuck forever.
         con.execute("UPDATE tasks SET status='pending' WHERE status='running'")
@@ -395,8 +398,9 @@ def execute_task(task_id, manual=False):
         next_run = None if not manual or task["next_run_at"] is None else task["next_run_at"]
         status = "done" if result == "success" else "error"
     with db() as con:
-        con.execute("INSERT INTO logs (task_id,executed_at,old_ip,new_ip,result,message) VALUES (?,?,?,?,?,?)",
-                    (task_id, now, old_ip, new_value, result, message))
+        if result != "healthy":
+            con.execute("INSERT INTO logs (task_id,executed_at,old_ip,new_ip,result,message) VALUES (?,?,?,?,?,?)",
+                        (task_id, now, old_ip, new_value, result, message))
         con.execute("UPDATE tasks SET next_run_at=?,status=?,last_run_at=? WHERE id=?",
                     (next_run, status, now, task_id))
     return result in ("success", "healthy")
@@ -442,6 +446,17 @@ def task_logs(task_id):
             abort(404)
         logs = con.execute("SELECT * FROM logs WHERE task_id=? ORDER BY id DESC LIMIT 200", (task_id,)).fetchall()
     return render_template("logs.html", task=task, logs=logs)
+
+
+@app.post("/tasks/<int:task_id>/logs/clear")
+@login_required
+def clear_task_logs(task_id):
+    with db() as con:
+        if not con.execute("SELECT 1 FROM tasks WHERE id=?", (task_id,)).fetchone():
+            abort(404)
+        deleted = con.execute("DELETE FROM logs WHERE task_id=?", (task_id,)).rowcount
+    flash(f"已清空 {deleted} 条执行日志", "success")
+    return redirect(url_for("task_logs", task_id=task_id))
 
 
 def scheduler_loop():
