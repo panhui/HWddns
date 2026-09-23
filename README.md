@@ -4,15 +4,15 @@
 
 ## 一键部署到 Linux
 
-需要一台可访问 GitHub、Docker Hub 和 PyPI 的 Linux 服务器，并安装 `curl`、`git`、`python3`。在服务器上运行：
+需要一台可访问 GitHub、Docker Hub 和 PyPI 的 Linux 服务器，并安装 `curl`。以 **root 用户**登录服务器后运行（无需 `sudo`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/panhui/HWddns/main/deploy.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/panhui/HWddns/main/deploy.sh | bash
 ```
 
-脚本会安装 Docker（如果缺少）、拉取本仓库、生成应用密钥并启动容器。访问 `http://服务器IP:8080`，初始管理员密码为 **Qwer1234**。首次登录后，在“云账号设置”中填写华为云 Access Key ID 和 Secret Access Key，再添加任务。
+脚本会安装 Docker（如果缺少）、拉取本仓库、生成应用密钥并启动容器。访问 `http://服务器IP:6006`，初始管理员密码为 **Qwer1234**。首次登录后，在“云账号设置”中填写华为云 Access Key ID 和 Secret Access Key，再添加任务。如果当前不是 root 用户，请先用 `su -` 切换到 root；安装了 `sudo` 的服务器也可在命令末尾使用 `| sudo bash`。
 
-**公网使用前请修改密码并配置 HTTPS。** 密码位于 `/opt/hwddns/.env` 的 `ADMIN_PASSWORD`；修改后在 `/opt/hwddns` 运行 `sudo docker compose up -d --force-recreate`。可在同一文件修改 `PORT` 和 `TZ`。如果 HTTPS 由反向代理提供，可设置 `COOKIE_SECURE=1` 后重启。
+**公网使用前请修改密码并配置 HTTPS。** 密码位于 `/opt/hwddns/.env` 的 `ADMIN_PASSWORD`；修改后在 `/opt/hwddns` 运行 `docker compose up -d --force-recreate`。可在同一文件修改 `PORT` 和 `TZ`。如果 HTTPS 由反向代理提供，可设置 `COOKIE_SECURE=1` 后重启。
 
 重复运行部署命令会拉取最新代码并重建容器，已有 `.env` 和 Docker 数据卷不会被覆盖。卸载前请备份数据卷。
 

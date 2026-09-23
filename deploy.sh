@@ -2,15 +2,33 @@
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "请使用 sudo 运行此脚本" >&2
+  echo "请切换到 root 用户后运行此脚本；如已安装 sudo，也可使用 sudo bash deploy.sh" >&2
   exit 1
 fi
-for command in curl git python3; do
+if ! command -v curl >/dev/null 2>&1; then
+  echo "缺少 curl，请先安装后重试" >&2
+  exit 1
+fi
+missing=()
+for command in git python3; do
   if ! command -v "$command" >/dev/null 2>&1; then
-    echo "缺少 $command，请先安装后重试" >&2
-    exit 1
+    missing+=("$command")
   fi
 done
+if ((${#missing[@]})); then
+  echo "正在安装 ${missing[*]} ..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y "${missing[@]}"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y "${missing[@]}"
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y "${missing[@]}"
+  else
+    echo "无法自动安装 ${missing[*]}，请手动安装后重试" >&2
+    exit 1
+  fi
+fi
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/hwddns}"
 REPO_URL="https://github.com/panhui/HWddns.git"
@@ -45,10 +63,10 @@ ADMIN_PASSWORD=Qwer1234
 APP_SECRET=$APP_SECRET
 DATA_KEY=$DATA_KEY
 TZ=Asia/Shanghai
-PORT=8080
+PORT=6006
 EOF
 fi
 docker compose up -d --build
 echo
-echo "HWddns 已启动。访问 http://服务器IP:8080 ，管理员密码：Qwer1234"
+echo "HWddns 已启动。访问 http://服务器IP:6006 ，管理员密码：Qwer1234"
 echo "配置文件：$INSTALL_DIR/.env（请在公网开放前更改管理员密码并配置 HTTPS）"

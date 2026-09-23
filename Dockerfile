@@ -8,5 +8,5 @@ COPY templates ./templates
 COPY static ./static
 RUN useradd -u 10001 -r -m app && mkdir /data && chown app:app /data
 USER app
-EXPOSE 8080
+EXPOSE 6006
 CMD ["python", "app.py"]

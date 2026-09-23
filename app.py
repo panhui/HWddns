@@ -350,4 +350,4 @@ def scheduler_loop():
 init_db()
 if __name__ == "__main__":
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    serve(app, host="0.0.0.0", port=8080, threads=8)
+    serve(app, host="0.0.0.0", port=6006, threads=8)
