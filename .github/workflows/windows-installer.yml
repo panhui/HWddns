@@ -10,7 +10,17 @@ permissions:
   contents: write
 
 jobs:
+  linux-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Linux image
+        run: docker build -t hwddns-check .
+      - name: Test Linux container
+        run: docker run --rm -v "$PWD/tests:/app/tests:ro" hwddns-check python -m unittest discover -s tests -v
+
   build:
+    needs: linux-check
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7

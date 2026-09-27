@@ -1,7 +1,9 @@
 import importlib
 import os
+import socket
 import sqlite3
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -34,6 +36,55 @@ class PanelTests(unittest.TestCase):
     def test_login_and_csrf(self):
         self.assertEqual(self.panel.app.test_client().get("/").status_code, 302)
         self.assertEqual(self.client.post("/settings", data={"ak": "x"}).status_code, 403)
+
+    def test_login_persists_for_30_days_and_logout(self):
+        with self.client.session_transaction() as session:
+            self.assertTrue(session.permanent)
+        self.assertEqual(self.client.post("/login", data={"password": "Qwer1234"}).status_code, 302)
+        cookie = self.client.get_cookie("session")
+        self.assertIsNotNone(cookie.expires)
+        self.assertAlmostEqual(cookie.expires.timestamp() - time.time(), 30 * 86400, delta=5)
+        reopened = self.panel.app.test_client()
+        reopened.set_cookie("session", cookie.value)
+        current = time.time()
+        with patch("time.time", return_value=current + 29 * 86400):
+            self.assertEqual(reopened.get("/").status_code, 200)
+        with patch("time.time", return_value=current + 31 * 86400):
+            self.assertEqual(reopened.get("/").status_code, 302)
+        with self.client.session_transaction() as session:
+            csrf = session["csrf"]
+        self.assertEqual(self.client.post("/logout", data={"csrf": csrf}).status_code, 302)
+        self.assertEqual(self.client.get("/").status_code, 302)
+
+    def test_ip_check_auth_validation_and_ipv6(self):
+        self.assertEqual(self.panel.app.test_client().get("/ip-check").status_code, 302)
+        self.assertEqual(self.client.post("/ip-check", data={"ip": "127.0.0.1", "port": "443"}).status_code, 403)
+        self.assertEqual(self.client.get("/ip-check").status_code, 200)
+        with patch.object(self.panel, "tcp_reachable", return_value=(True, "TCP 连接成功")) as probe:
+            for address, port in [("example.com", "443"), ("127.0.0.1", "0"),
+                                  ("127.0.0.1", "65536"), ("127.0.0.1", "bad")]:
+                response = self.client.post("/ip-check", data={"csrf": self.csrf, "ip": address, "port": port})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('alert error', response.get_data(as_text=True))
+            probe.assert_not_called()
+            response = self.client.post("/ip-check", data={"csrf": self.csrf,
+                "ip": " 2001:db8::1 ", "port": "443"})
+            probe.assert_called_once_with("2001:db8::1", 443)
+            self.assertIn("TCP 可连接", response.get_data(as_text=True))
+
+    def test_ip_check_real_tcp_open_and_closed_port(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            data = {"csrf": self.csrf, "ip": "127.0.0.1", "port": str(port)}
+            page = self.client.post("/ip-check", data=data).get_data(as_text=True)
+            self.assertIn("TCP 可连接", page)
+        page = self.client.post("/ip-check", data=data).get_data(as_text=True)
+        self.assertIn("TCP 连接失败", page)
+        with self.panel.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM logs").fetchone()[0], 0)
 
     def test_task_lifecycle_and_log(self):
         response = self.client.post("/settings", data={"csrf": self.csrf, "ak": "AK", "sk": "SK", "region": "cn-north-4"})

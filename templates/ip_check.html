@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}IP 可用性检测{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('index') }}">← 返回任务</a>
+<div class="heading"><div><div class="eyebrow">TCP CHECK</div><h1>IP 可用性检测</h1><p class="muted">填写 IP 和端口，检测 TCP 是否可以连接。</p></div></div>
+<form method="post" class="card form-card stack" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="form-grid">
+    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') }}" placeholder="例如 1.1.1.1 或 2606:4700:4700::1111" required></label>
+    <label>TCP 端口<input name="port" type="number" min="1" max="65535" value="{{ request.form.get('port', '') }}" placeholder="例如 443" required></label>
+  </div>
+  <div class="notice compact">检测从运行面板的服务器发起。每次连接最多等待 3 秒，失败后重试一次。结果代表此服务器到指定 IP、端口的 TCP 连通性。</div>
+  <div class="form-actions"><button class="button primary">开始检测</button></div>
+</form>
+{% if result %}
+<section class="card form-card check-result" aria-live="polite">
+  <h2><span class="pill {{ 'success' if result.reachable else 'error' }}">{{ 'TCP 可连接' if result.reachable else 'TCP 连接失败' }}</span></h2>
+  <p><strong>IP：</strong><span class="mono">{{ result.ip }}</span>　<strong>端口：</strong>{{ result.port }}</p>
+  <p class="muted">检测时间：{{ result.checked_at }}（{{ tz_name }}）</p>
+  <p class="check-detail">{{ result.detail }}</p>
+</section>
+{% endif %}
+{% endblock %}

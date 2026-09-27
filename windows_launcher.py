@@ -84,6 +84,15 @@ def self_test():
         user_session["csrf"] = "test"
     assert client.get("/").status_code == 200
     assert client.get("/tasks/probe/new").status_code == 200
+    assert client.get("/ip-check").status_code == 200
+    with client.session_transaction() as user_session:
+        assert user_session.permanent
+    with socket.socket() as target:
+        target.bind(("127.0.0.1", 0))
+        target.listen(1)
+        result = client.post("/ip-check", data={"csrf": "test", "ip": "127.0.0.1",
+                                               "port": str(target.getsockname()[1])})
+        assert "TCP 可连接" in result.get_data(as_text=True)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]

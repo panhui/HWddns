@@ -33,7 +33,9 @@ RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 app = Flask(__name__, template_folder=str(RESOURCE_ROOT / "templates"),
             static_folder=str(RESOURCE_ROOT / "static"))
 app.secret_key = SECRET
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+                  SESSION_REFRESH_EACH_REQUEST=False)
 if os.environ.get("COOKIE_SECURE") == "1":
     app.config["SESSION_COOKIE_SECURE"] = True
 
@@ -158,6 +160,7 @@ def login():
             _login_attempts[address] = recent
         if secrets.compare_digest(request.form.get("password", ""), PASSWORD):
             session.clear()
+            session.permanent = True
             session["authenticated"] = True
             session["csrf"] = secrets.token_urlsafe(32)
             with _login_lock:
@@ -182,6 +185,30 @@ def index():
         configured = con.execute("SELECT 1 FROM settings WHERE id=1").fetchone() is not None
         recent = con.execute("SELECT l.*, t.domain FROM logs l JOIN tasks t ON t.id=l.task_id ORDER BY l.id DESC LIMIT 8").fetchall()
     return render_template("index.html", tasks=tasks, configured=configured, recent=recent)
+
+
+@app.route("/ip-check", methods=["GET", "POST"])
+@login_required
+def ip_check():
+    result = None
+    if request.method == "POST":
+        try:
+            try:
+                address = str(ipaddress.ip_address(request.form.get("ip", "").strip()))
+            except ValueError as exc:
+                raise ValueError("请输入有效的 IPv4 或 IPv6 地址") from exc
+            try:
+                port = int(request.form.get("port", ""))
+            except ValueError as exc:
+                raise ValueError("请输入有效的端口，范围为 1 到 65535") from exc
+            if not 1 <= port <= 65535:
+                raise ValueError("端口需在 1 到 65535 之间")
+            reachable, detail = tcp_reachable(address, port)
+            result = {"ip": address, "port": port, "reachable": reachable,
+                      "detail": detail, "checked_at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")}
+        except ValueError as exc:
+            flash(str(exc), "error")
+    return render_template("ip_check.html", result=result)
 
 
 @app.route("/settings", methods=["GET", "POST"])

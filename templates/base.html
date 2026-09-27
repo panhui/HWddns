@@ -10,7 +10,7 @@
   {% if session.authenticated %}
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-icon">↗</span> HWddns <small>DNS 解析管理</small></a>
-    <nav><a href="{{ url_for('index') }}">任务</a><a href="{{ url_for('settings') }}">云账号设置</a><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-button">退出</button></form></nav>
+    <nav><a href="{{ url_for('index') }}">任务</a><a href="{{ url_for('ip_check') }}">IP 检测</a><a href="{{ url_for('settings') }}">云账号设置</a><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-button">退出</button></form></nav>
   </header>
   {% endif %}
   <main class="container {% if not session.authenticated %}login-container{% endif %}">
