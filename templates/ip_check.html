@@ -1,40 +1,36 @@
 {% extends 'base.html' %}
 {% block title %}IP 可用性检测{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('index') }}">← 返回任务</a>
-<div class="heading"><div><div class="eyebrow">TCP CHECK</div><h1>IP 可用性检测</h1><p class="muted">从运行面板的服务器检测 TCP 连通性。每个端口最多等待 1 秒。</p></div></div>
+<div class="heading"><div><div class="eyebrow">网络工具</div><h1>IP 可用性检测</h1><p class="muted">检测从本面板所在服务器发起；每个 TCP 端口最多等待 1 秒。</p></div></div>
 <div class="check-grid">
-  <form method="post" class="card form-card stack" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="mode" value="single">
-    <h2>单端口检测</h2>
-    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'single' else '' }}" placeholder="例如 1.1.1.1 或 2606:4700:4700::1111" required></label>
+  <form method="post" class="card form-card stack check-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="single">
+    <div class="form-title"><div><h2>单端口检测</h2><p class="muted">快速检查指定 IP 的一个端口</p></div><span class="step-badge">01</span></div>
+    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'single' else '' }}" placeholder="例如 1.1.1.1" required></label>
     <label>TCP 端口<input name="port" type="number" min="1" max="65535" value="{{ request.form.get('port', '58611') if request.form.get('mode', 'single') == 'single' else '58611' }}" required></label>
-    <div class="form-actions"><button class="button primary">检测端口</button></div>
+    <button class="button primary full">检测端口</button>
   </form>
-  <form method="post" class="card form-card stack" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="mode" value="range">
-    <h2>端口段检测</h2>
-    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'range' else '' }}" placeholder="例如 1.1.1.1 或 2606:4700:4700::1111" required></label>
-    <label>TCP 端口段<input name="ports" type="text" value="{{ request.form.get('ports', '58610-58639') if request.form.get('mode') == 'range' else '58610-58639' }}" placeholder="58610-58639" required><span class="hint">包含起始和结束端口，一次最多检测 256 个端口。</span></label>
-    <div class="form-actions"><button class="button primary">检测端口段</button></div>
+  <form method="post" class="card form-card stack check-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="range">
+    <div class="form-title"><div><h2>端口段检测</h2><p class="muted">一次查看连续端口的连通情况</p></div><span class="step-badge">02</span></div>
+    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'range' else '' }}" placeholder="例如 1.1.1.1" required></label>
+    <label>TCP 端口段<input name="ports" type="text" value="{{ request.form.get('ports', '58610-58639') if request.form.get('mode') == 'range' else '58610-58639' }}" placeholder="58610-58639" required><span class="hint">包含起止端口，一次最多 256 个。</span></label>
+    <button class="button primary full">检测端口段</button>
   </form>
 </div>
 {% if single_result %}
-<section class="card form-card check-result" aria-live="polite">
-  <h2><span class="pill {{ 'success' if single_result.reachable else 'error' }}">{{ 'TCP 可连接' if single_result.reachable else 'TCP 连接失败' }}</span></h2>
-  <p><strong>IP：</strong><span class="mono">{{ single_result.ip }}</span>　<strong>端口：</strong>{{ single_result.port }}</p>
-  <p class="muted">检测时间：{{ single_result.checked_at }}（{{ tz_name }}）</p>
-  <p class="check-detail">{{ single_result.detail }}</p>
+<section class="card check-result result-panel" aria-live="polite">
+  <div class="result-heading"><div><div class="eyebrow">检测结果</div><h2>{{ single_result.ip }}:{{ single_result.port }}</h2><p class="muted">{{ single_result.checked_at }}（{{ tz_name }}）</p></div><span class="result-status {{ 'up' if single_result.reachable else 'down' }}"><span aria-hidden="true">{{ '✓' if single_result.reachable else '×' }}</span> {{ '可连接' if single_result.reachable else '连接失败' }}</span></div>
+  <p class="muted result-detail">{{ single_result.detail }}</p>
 </section>
 {% endif %}
 {% if range_result %}
-<section class="card check-result" aria-live="polite">
-  <div class="section-head"><div><h2>端口段检测结果</h2><p class="muted"><span class="mono">{{ range_result.ip }}</span> · {{ range_result.start_port }}–{{ range_result.end_port }} · {{ range_result.checked_at }}（{{ tz_name }}）</p></div><strong>可连接 {{ range_result.open_count }} / {{ range_result.results|length }}</strong></div>
-  <div class="table-scroll"><table><thead><tr><th>端口</th><th>状态</th><th>详情</th></tr></thead><tbody>
-  {% for port, reachable, detail in range_result.results %}<tr><td class="mono">{{ port }}</td><td><span class="pill {{ 'success' if reachable else 'error' }}">{{ '可连接' if reachable else '连接失败' }}</span></td><td class="check-detail">{{ detail }}</td></tr>{% endfor %}
-  </tbody></table></div>
+<section class="card check-result result-panel" aria-live="polite">
+  <div class="result-heading"><div><div class="eyebrow">检测结果</div><h2>{{ range_result.ip }} · {{ range_result.start_port }}–{{ range_result.end_port }}</h2><p class="muted">{{ range_result.checked_at }}（{{ tz_name }}）</p></div><span class="result-count">{{ range_result.open_count }} / {{ range_result.results|length }} <small>可连接</small></span></div>
+  <div class="port-legend"><span><span class="port-symbol up" aria-hidden="true">✓</span> 可连接</span><span><span class="port-symbol down" aria-hidden="true">×</span> 连接失败</span></div>
+  <div class="port-grid" aria-label="端口段检测结果">
+    {% for port, reachable, detail in range_result.results %}<div class="port-item {{ 'up' if reachable else 'down' }}" aria-label="端口 {{ port }} {{ '可连接' if reachable else '连接失败' }}"><span class="port-number">{{ port }}</span><span class="port-symbol" aria-hidden="true">{{ '✓' if reachable else '×' }}</span></div>{% endfor %}
+  </div>
 </section>
 {% endif %}
 {% endblock %}

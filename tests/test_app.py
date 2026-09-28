@@ -72,7 +72,7 @@ class PanelTests(unittest.TestCase):
             response = self.client.post("/ip-check", data={"csrf": self.csrf,
                 "ip": " 2001:db8::1 ", "port": "443"})
             probe.assert_called_once_with("2001:db8::1", 443, attempts=1, timeout=1)
-            self.assertIn("TCP 可连接", response.get_data(as_text=True))
+            self.assertIn('class="result-status up"', response.get_data(as_text=True))
 
     def test_ip_range_check_validation_and_results(self):
         self.assertEqual(self.client.post("/ip-check", data={"mode": "range", "ip": "127.0.0.1",
@@ -91,8 +91,12 @@ class PanelTests(unittest.TestCase):
                                                            "ip": " 2001:db8::1 ", "ports": "58610-58611"})
             scan.assert_called_once_with("2001:db8::1", 58610, 58611)
             page = response.get_data(as_text=True)
-            self.assertIn("可连接 1 / 2", page)
-            self.assertIn("连接拒绝", page)
+            self.assertIn("1 / 2", page)
+            self.assertIn('class="port-grid"', page)
+            self.assertEqual(page.count('class="port-item '), 2)
+            self.assertIn('class="port-item up"', page)
+            self.assertIn('class="port-item down"', page)
+            self.assertNotIn("连接拒绝", page)
             self.assertIn("58611", page)
 
     def test_ip_check_real_tcp_open_and_closed_port(self):
@@ -102,9 +106,9 @@ class PanelTests(unittest.TestCase):
             port = server.getsockname()[1]
             data = {"csrf": self.csrf, "ip": "127.0.0.1", "port": str(port)}
             page = self.client.post("/ip-check", data=data).get_data(as_text=True)
-            self.assertIn("TCP 可连接", page)
+            self.assertIn('class="result-status up"', page)
         page = self.client.post("/ip-check", data=data).get_data(as_text=True)
-        self.assertIn("TCP 连接失败", page)
+        self.assertIn('class="result-status down"', page)
         with self.panel.db() as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM logs").fetchone()[0], 0)
