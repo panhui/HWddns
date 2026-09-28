@@ -93,6 +93,10 @@ def self_test():
         result = client.post("/ip-check", data={"csrf": "test", "ip": "127.0.0.1",
                                                "port": str(target.getsockname()[1])})
         assert "TCP 可连接" in result.get_data(as_text=True)
+        port_range = str(target.getsockname()[1])
+        result = client.post("/ip-check", data={"csrf": "test", "mode": "range",
+                                               "ip": "127.0.0.1", "ports": f"{port_range}-{port_range}"})
+        assert "可连接 1 / 1" in result.get_data(as_text=True)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]

@@ -1,5 +1,6 @@
 import ipaddress
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -16,7 +17,7 @@ from flask import Flask, abort, flash, redirect, render_template, request, sessi
 from waitress import serve
 
 from dns import set_record
-from probe import tcp_reachable
+from probe import scan_tcp_ports, tcp_reachable
 
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
 DATA.mkdir(parents=True, exist_ok=True)
@@ -190,25 +191,44 @@ def index():
 @app.route("/ip-check", methods=["GET", "POST"])
 @login_required
 def ip_check():
-    result = None
+    single_result = None
+    range_result = None
     if request.method == "POST":
         try:
             try:
                 address = str(ipaddress.ip_address(request.form.get("ip", "").strip()))
             except ValueError as exc:
                 raise ValueError("请输入有效的 IPv4 或 IPv6 地址") from exc
-            try:
-                port = int(request.form.get("port", ""))
-            except ValueError as exc:
-                raise ValueError("请输入有效的端口，范围为 1 到 65535") from exc
-            if not 1 <= port <= 65535:
-                raise ValueError("端口需在 1 到 65535 之间")
-            reachable, detail = tcp_reachable(address, port)
-            result = {"ip": address, "port": port, "reachable": reachable,
-                      "detail": detail, "checked_at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")}
+            checked_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+            mode = request.form.get("mode", "single")
+            if mode == "single":
+                try:
+                    port = int(request.form.get("port", ""))
+                except ValueError as exc:
+                    raise ValueError("请输入有效的端口，范围为 1 到 65535") from exc
+                if not 1 <= port <= 65535:
+                    raise ValueError("端口需在 1 到 65535 之间")
+                reachable, detail = tcp_reachable(address, port, attempts=1, timeout=1)
+                single_result = {"ip": address, "port": port, "reachable": reachable,
+                                 "detail": detail, "checked_at": checked_at}
+            elif mode == "range":
+                match = re.fullmatch(r"\s*(\d{1,5})\s*-\s*(\d{1,5})\s*", request.form.get("ports", ""))
+                if not match:
+                    raise ValueError("请输入端口段，例如 58610-58639")
+                start_port, end_port = map(int, match.groups())
+                if not 1 <= start_port <= end_port <= 65535:
+                    raise ValueError("端口段需在 1 到 65535 之间，且起始端口不能大于结束端口")
+                if end_port - start_port + 1 > 256:
+                    raise ValueError("一次最多检测 256 个端口")
+                results = scan_tcp_ports(address, start_port, end_port)
+                range_result = {"ip": address, "start_port": start_port, "end_port": end_port,
+                                "results": results, "open_count": sum(item[1] for item in results),
+                                "checked_at": checked_at}
+            else:
+                raise ValueError("检测类型无效")
         except ValueError as exc:
             flash(str(exc), "error")
-    return render_template("ip_check.html", result=result)
+    return render_template("ip_check.html", single_result=single_result, range_result=range_result)
 
 
 @app.route("/settings", methods=["GET", "POST"])

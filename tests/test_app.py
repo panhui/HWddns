@@ -59,7 +59,9 @@ class PanelTests(unittest.TestCase):
     def test_ip_check_auth_validation_and_ipv6(self):
         self.assertEqual(self.panel.app.test_client().get("/ip-check").status_code, 302)
         self.assertEqual(self.client.post("/ip-check", data={"ip": "127.0.0.1", "port": "443"}).status_code, 403)
-        self.assertEqual(self.client.get("/ip-check").status_code, 200)
+        page = self.client.get("/ip-check").get_data(as_text=True)
+        self.assertIn('value="58611"', page)
+        self.assertIn('value="58610-58639"', page)
         with patch.object(self.panel, "tcp_reachable", return_value=(True, "TCP 连接成功")) as probe:
             for address, port in [("example.com", "443"), ("127.0.0.1", "0"),
                                   ("127.0.0.1", "65536"), ("127.0.0.1", "bad")]:
@@ -69,8 +71,29 @@ class PanelTests(unittest.TestCase):
             probe.assert_not_called()
             response = self.client.post("/ip-check", data={"csrf": self.csrf,
                 "ip": " 2001:db8::1 ", "port": "443"})
-            probe.assert_called_once_with("2001:db8::1", 443)
+            probe.assert_called_once_with("2001:db8::1", 443, attempts=1, timeout=1)
             self.assertIn("TCP 可连接", response.get_data(as_text=True))
+
+    def test_ip_range_check_validation_and_results(self):
+        self.assertEqual(self.client.post("/ip-check", data={"mode": "range", "ip": "127.0.0.1",
+                                                          "ports": "58610-58639"}).status_code, 403)
+        with patch.object(self.panel, "scan_tcp_ports", return_value=[
+                (58610, False, "连接拒绝"), (58611, True, "TCP 连接成功")]) as scan:
+            for address, ports in [("example.com", "58610-58611"), ("127.0.0.1", "58611"),
+                                   ("127.0.0.1", "58612-58610"), ("127.0.0.1", "0-1"),
+                                   ("127.0.0.1", "65535-65536"), ("127.0.0.1", "1-257")]:
+                response = self.client.post("/ip-check", data={"csrf": self.csrf, "mode": "range",
+                                                               "ip": address, "ports": ports})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn('alert error', response.get_data(as_text=True))
+            scan.assert_not_called()
+            response = self.client.post("/ip-check", data={"csrf": self.csrf, "mode": "range",
+                                                           "ip": " 2001:db8::1 ", "ports": "58610-58611"})
+            scan.assert_called_once_with("2001:db8::1", 58610, 58611)
+            page = response.get_data(as_text=True)
+            self.assertIn("可连接 1 / 2", page)
+            self.assertIn("连接拒绝", page)
+            self.assertIn("58611", page)
 
     def test_ip_check_real_tcp_open_and_closed_port(self):
         with socket.socket() as server:

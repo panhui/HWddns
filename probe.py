@@ -2,6 +2,7 @@
 
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 
 def tcp_reachable(host, port, attempts=2, timeout=3):
@@ -15,3 +16,11 @@ def tcp_reachable(host, port, attempts=2, timeout=3):
             if attempt + 1 < attempts:
                 time.sleep(1)
     return False, last_error or "TCP 连接失败"
+
+
+def scan_tcp_ports(host, start_port, end_port):
+    """Check a bounded port range concurrently, returning results in port order."""
+    ports = range(start_port, end_port + 1)
+    with ThreadPoolExecutor(max_workers=min(16, len(ports))) as executor:
+        checks = executor.map(lambda port: tcp_reachable(host, port, attempts=1, timeout=1), ports)
+        return [(port, reachable, detail) for port, (reachable, detail) in zip(ports, checks)]
