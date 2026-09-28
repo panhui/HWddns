@@ -89,6 +89,7 @@ def init_db():
             "probe_domain": "TEXT",
             "probe_port": "INTEGER",
             "interval_minutes": "INTEGER",
+            "last_probe_reachable": "INTEGER",
         }
         for name, definition in additions.items():
             if name not in columns:
@@ -196,9 +197,9 @@ def ip_check():
     if request.method == "POST":
         try:
             try:
-                address = str(ipaddress.ip_address(request.form.get("ip", "").strip()))
+                address = parse_check_host(request.form.get("ip", ""))
             except ValueError as exc:
-                raise ValueError("请输入有效的 IPv4 或 IPv6 地址") from exc
+                raise ValueError("请输入有效的 IP 地址或完整域名") from exc
             checked_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             mode = request.form.get("mode", "single")
             if mode == "single":
@@ -264,6 +265,14 @@ def parse_domain(value):
             for label in domain.split(".")) or "." not in domain:
         raise ValueError("请输入有效的完整域名，例如 home.example.com")
     return domain
+
+
+def parse_check_host(value):
+    host = value.strip()
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return parse_domain(host)
 
 
 def parse_target(form, domain):
@@ -370,7 +379,7 @@ def edit_task(task_id):
                 next_run = utcnow()
                 with db() as con:
                     cur = con.execute("""UPDATE tasks SET domain=?,ip=?,record_type=?,probe_domain=?,probe_port=?,interval_minutes=?,
-                        next_run_at=?,status='pending' WHERE id=? AND status!='running'""",
+                        next_run_at=?,status='pending',last_probe_reachable=NULL WHERE id=? AND status!='running'""",
                         (domain, target, kind, probe_domain, port, interval, next_run, task_id))
             else:
                 domain, target, kind, schedule, run_at = parse_task(request.form)
@@ -408,9 +417,11 @@ def execute_task(task_id, manual=False):
     new_value = task["ip"]
     result = "error"
     message = ""
+    probe_reachable = None
     try:
         if task["kind"] == "probe":
             reachable, detail = tcp_reachable(task["probe_domain"], task["probe_port"])
+            probe_reachable = int(reachable)
             if reachable:
                 result = "healthy"
                 new_value = "—"
@@ -448,8 +459,8 @@ def execute_task(task_id, manual=False):
         if result != "healthy":
             con.execute("INSERT INTO logs (task_id,executed_at,old_ip,new_ip,result,message) VALUES (?,?,?,?,?,?)",
                         (task_id, now, old_ip, new_value, result, message))
-        con.execute("UPDATE tasks SET next_run_at=?,status=?,last_run_at=? WHERE id=?",
-                    (next_run, status, now, task_id))
+        con.execute("UPDATE tasks SET next_run_at=?,status=?,last_run_at=?,last_probe_reachable=? WHERE id=?",
+                    (next_run, status, now, probe_reachable, task_id))
     return result in ("success", "healthy")
 
 

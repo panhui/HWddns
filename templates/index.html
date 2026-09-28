@@ -19,7 +19,7 @@
   <tr>
     <td data-label="解析域名"><strong>{{ task.domain }}</strong><small>{{ task.record_type }} 记录</small></td>
     <td data-label="目标值" class="mono">{{ task.ip }}</td>
-    <td data-label="方式">{% if task.kind == 'probe' %}探测 {{ task.probe_domain }}:{{ task.probe_port }}<small>每 {{ task.interval_minutes }} 分钟</small>{% else %}{{ '每日' if task.schedule == 'daily' else '单次' }}{% endif %}</td>
+    <td data-label="方式">{% if task.kind == 'probe' %}<div class="probe-target"><span>探测 {{ task.probe_domain }}:{{ task.probe_port }}</span>{% if task.last_probe_reachable == 1 %}<span class="probe-indicator up" role="img" aria-label="最近一次探测连通" title="最近一次探测连通">✓</span>{% elif task.last_probe_reachable == 0 %}<span class="probe-indicator down" role="img" aria-label="最近一次探测不通" title="最近一次探测不通">×</span>{% else %}<span class="probe-indicator unknown" role="img" aria-label="尚未探测" title="尚未探测">—</span>{% endif %}</div><small>每 {{ task.interval_minutes }} 分钟</small>{% else %}{{ '每日' if task.schedule == 'daily' else '单次' }}{% endif %}</td>
     <td data-label="下次执行">{{ task.next_run_at|localtime }}</td>
     <td data-label="状态"><span class="pill {{ 'paused' if not task.enabled else task.status }}">{{ '已暂停' if not task.enabled else {'pending':'待执行','running':'执行中','done':'已完成','error':'失败'}[task.status] }}</span></td>
     <td data-label="操作"><div class="actions">

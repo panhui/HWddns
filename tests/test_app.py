@@ -62,8 +62,10 @@ class PanelTests(unittest.TestCase):
         page = self.client.get("/ip-check").get_data(as_text=True)
         self.assertIn('value="58611"', page)
         self.assertIn('value="58610-58639"', page)
+        self.assertIn("IP 地址或域名", page)
+        self.assertNotIn('placeholder="例如', page)
         with patch.object(self.panel, "tcp_reachable", return_value=(True, "TCP 连接成功")) as probe:
-            for address, port in [("example.com", "443"), ("127.0.0.1", "0"),
+            for address, port in [("bad..domain", "443"), ("127.0.0.1", "0"),
                                   ("127.0.0.1", "65536"), ("127.0.0.1", "bad")]:
                 response = self.client.post("/ip-check", data={"csrf": self.csrf, "ip": address, "port": port})
                 self.assertEqual(response.status_code, 200)
@@ -73,13 +75,18 @@ class PanelTests(unittest.TestCase):
                 "ip": " 2001:db8::1 ", "port": "443"})
             probe.assert_called_once_with("2001:db8::1", 443, attempts=1, timeout=1)
             self.assertIn('class="result-status up"', response.get_data(as_text=True))
+            probe.reset_mock()
+            response = self.client.post("/ip-check", data={"csrf": self.csrf,
+                "ip": " Service.Example.Com. ", "port": "58611"})
+            self.assertIn('class="result-status up"', response.get_data(as_text=True))
+            probe.assert_called_once_with("service.example.com", 58611, attempts=1, timeout=1)
 
     def test_ip_range_check_validation_and_results(self):
         self.assertEqual(self.client.post("/ip-check", data={"mode": "range", "ip": "127.0.0.1",
                                                           "ports": "58610-58639"}).status_code, 403)
         with patch.object(self.panel, "scan_tcp_ports", return_value=[
                 (58610, False, "连接拒绝"), (58611, True, "TCP 连接成功")]) as scan:
-            for address, ports in [("example.com", "58610-58611"), ("127.0.0.1", "58611"),
+            for address, ports in [("bad..domain", "58610-58611"), ("127.0.0.1", "58611"),
                                    ("127.0.0.1", "58612-58610"), ("127.0.0.1", "0-1"),
                                    ("127.0.0.1", "65535-65536"), ("127.0.0.1", "1-257")]:
                 response = self.client.post("/ip-check", data={"csrf": self.csrf, "mode": "range",
@@ -98,6 +105,11 @@ class PanelTests(unittest.TestCase):
             self.assertIn('class="port-item down"', page)
             self.assertNotIn("连接拒绝", page)
             self.assertIn("58611", page)
+            scan.reset_mock()
+            response = self.client.post("/ip-check", data={"csrf": self.csrf, "mode": "range",
+                "ip": " Service.Example.Com. ", "ports": "58610-58611"})
+            self.assertIn("service.example.com", response.get_data(as_text=True))
+            scan.assert_called_once_with("service.example.com", 58610, 58611)
 
     def test_ip_check_real_tcp_open_and_closed_port(self):
         with socket.socket() as server:
@@ -128,6 +140,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with self.panel.db() as con:
             task_id = con.execute("SELECT id FROM tasks").fetchone()[0]
+            self.assertIsNone(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0])
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get(f"/tasks/{task_id}/edit").status_code, 200)
         with patch.object(self.panel, "set_record", return_value=("203.0.113.9", "updated")) as cloud:
@@ -180,7 +193,8 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with self.panel.db() as con:
             task_id = con.execute("SELECT id FROM tasks").fetchone()[0]
-        self.assertEqual(self.client.get("/").status_code, 200)
+            self.assertIsNone(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0])
+        self.assertIn("尚未探测", self.client.get("/").get_data(as_text=True))
         self.assertEqual(self.client.get(f"/tasks/{task_id}/edit").status_code, 200)
         with patch.object(self.panel, "tcp_reachable", return_value=(True, "ok")), \
              patch.object(self.panel, "set_record") as cloud:
@@ -188,12 +202,14 @@ class PanelTests(unittest.TestCase):
             cloud.assert_not_called()
         with self.panel.db() as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 0)
-            task = con.execute("SELECT last_run_at,next_run_at FROM tasks WHERE id=?", (task_id,)).fetchone()
+            task = con.execute("SELECT last_run_at,next_run_at,last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()
             self.assertIsNotNone(task["last_run_at"])
             self.assertIsNotNone(task["next_run_at"])
+            self.assertEqual(task["last_probe_reachable"], 1)
             con.execute("INSERT INTO settings VALUES (1,?,?,?)", (
                 self.panel.FERNET.encrypt(b"AK").decode(),
                 self.panel.FERNET.encrypt(b"SK").decode(), "cn-north-4"))
+        self.assertIn("最近一次探测连通", self.client.get("/").get_data(as_text=True))
         with patch.object(self.panel, "tcp_reachable", return_value=(False, "连接超时")), \
              patch.object(self.panel, "set_record", return_value=("primary.example.com.", "updated")) as cloud:
             self.assertTrue(self.panel.execute_task(task_id, manual=True))
@@ -202,11 +218,24 @@ class PanelTests(unittest.TestCase):
             log = con.execute("SELECT * FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
             self.assertEqual(log["old_ip"], "primary.example.com.")
             self.assertIn("探测不通", log["message"])
+            self.assertEqual(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0], 0)
             con.execute("INSERT INTO logs (task_id,executed_at,old_ip,new_ip,result,message) VALUES (?,?,?,?,?,?)",
                         (task_id, self.panel.utcnow(), "—", "—", "healthy", "旧版探测正常记录"))
         self.panel.init_db()
         with self.panel.db() as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 1)
+        self.assertIn("最近一次探测不通", self.client.get("/").get_data(as_text=True))
+        with patch.object(self.panel, "tcp_reachable", return_value=(False, "连接超时")), \
+             patch.object(self.panel, "set_record", side_effect=ValueError("DNS 不可用")):
+            self.assertFalse(self.panel.execute_task(task_id, manual=True))
+        with self.panel.db() as con:
+            self.assertEqual(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0], 0)
+        response = self.client.post(f"/tasks/{task_id}/edit", data={"csrf": self.csrf,
+            "probe_domain": "new.example.com", "probe_port": "443", "domain": "home.example.com",
+            "record_type": "CNAME", "ip": "backup.example.com", "interval_minutes": "5"})
+        self.assertEqual(response.status_code, 302)
+        with self.panel.db() as con:
+            self.assertIsNone(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0])
 
     def test_pause_stops_automatic_run(self):
         future = (datetime.now(self.panel.TZ) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
@@ -239,8 +268,8 @@ class PanelTests(unittest.TestCase):
             with patch.object(self.panel, "DB", path):
                 self.panel.init_db()
                 with self.panel.db() as upgraded:
-                    row = upgraded.execute("SELECT kind,record_type,enabled FROM tasks WHERE id=1").fetchone()
-                    self.assertEqual(tuple(row), ("scheduled", "AAAA", 1))
+                    row = upgraded.execute("SELECT kind,record_type,enabled,last_probe_reachable FROM tasks WHERE id=1").fetchone()
+                    self.assertEqual(tuple(row), ("scheduled", "AAAA", 1, None))
 
 
 if __name__ == "__main__":

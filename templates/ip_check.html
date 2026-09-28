@@ -1,20 +1,20 @@
 {% extends 'base.html' %}
 {% block title %}IP 可用性检测{% endblock %}
 {% block content %}
-<div class="heading"><div><div class="eyebrow">网络工具</div><h1>IP 可用性检测</h1><p class="muted">检测从本面板所在服务器发起；每个 TCP 端口最多等待 1 秒。</p></div></div>
+<div class="heading"><div><div class="eyebrow">网络工具</div><h1>IP 可用性检测</h1><p class="muted">输入 IP 地址或域名，从本面板所在服务器检测 TCP 连通性。</p></div></div>
 <div class="check-grid">
   <form method="post" class="card form-card stack check-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="single">
-    <div class="form-title"><div><h2>单端口检测</h2><p class="muted">快速检查指定 IP 的一个端口</p></div><span class="step-badge">01</span></div>
-    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'single' else '' }}" placeholder="例如 1.1.1.1" required></label>
+    <div class="form-title"><div><h2>单端口检测</h2><p class="muted">快速检查指定 IP 或域名的一个端口</p></div><span class="step-badge">01</span></div>
+    <label>IP 地址或域名<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'single' else '' }}" required></label>
     <label>TCP 端口<input name="port" type="number" min="1" max="65535" value="{{ request.form.get('port', '58611') if request.form.get('mode', 'single') == 'single' else '58611' }}" required></label>
     <button class="button primary full">检测端口</button>
   </form>
   <form method="post" class="card form-card stack check-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="range">
     <div class="form-title"><div><h2>端口段检测</h2><p class="muted">一次查看连续端口的连通情况</p></div><span class="step-badge">02</span></div>
-    <label>IP 地址<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'range' else '' }}" placeholder="例如 1.1.1.1" required></label>
-    <label>TCP 端口段<input name="ports" type="text" value="{{ request.form.get('ports', '58610-58639') if request.form.get('mode') == 'range' else '58610-58639' }}" placeholder="58610-58639" required><span class="hint">包含起止端口，一次最多 256 个。</span></label>
+    <label>IP 地址或域名<input name="ip" type="text" value="{{ request.form.get('ip', '') if request.form.get('mode') == 'range' else '' }}" required></label>
+    <label>TCP 端口段<input name="ports" type="text" value="{{ request.form.get('ports', '58610-58639') if request.form.get('mode') == 'range' else '58610-58639' }}" required><span class="hint">包含起止端口，一次最多 256 个。</span></label>
     <button class="button primary full">检测端口段</button>
   </form>
 </div>
