@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from waitress import serve
 
 from dns import set_record
@@ -90,11 +90,13 @@ def init_db():
             "probe_port": "INTEGER",
             "interval_minutes": "INTEGER",
             "last_probe_reachable": "INTEGER",
+            "probe_targets": "TEXT",
         }
         for name, definition in additions.items():
             if name not in columns:
                 con.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
         con.execute("UPDATE tasks SET record_type='AAAA' WHERE instr(ip, ':') > 0 AND record_type='A'")
+        con.execute("UPDATE tasks SET probe_targets=ip WHERE kind='probe' AND (probe_targets IS NULL OR trim(probe_targets)='')")
         con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_enabled_due ON tasks(enabled, next_run_at)")
         # Older versions stored a row for every successful probe. Remove those
         # rows once upgraded and leave failure/change history intact.
@@ -316,7 +318,18 @@ def parse_task(form):
 def parse_probe_task(form):
     probe_domain = parse_domain(form.get("probe_domain", ""))
     domain = parse_domain(form.get("domain", "").strip() or probe_domain)
-    kind, target = parse_target(form, domain)
+    raw_targets = form.get("targets", form.get("ip", ""))
+    entries = [value.strip() for value in re.split(r"[\r\n,，]+", raw_targets) if value.strip()]
+    if not entries:
+        raise ValueError("请填写至少一个备用目标")
+    if len(entries) > 10:
+        raise ValueError("最多填写 10 个备用目标")
+    targets = []
+    for entry in entries:
+        kind, target = parse_target({"record_type": form.get("record_type", "A"), "ip": entry}, domain)
+        if target in targets:
+            raise ValueError("备用目标不能重复")
+        targets.append(target)
     try:
         port = int(form.get("probe_port", ""))
         interval = int(form.get("interval_minutes", ""))
@@ -326,7 +339,24 @@ def parse_probe_task(form):
         raise ValueError("端口需在 1 到 65535 之间")
     if not 1 <= interval <= 1440:
         raise ValueError("执行间隔需在 1 到 1440 分钟之间")
-    return domain, target, kind, probe_domain, port, interval
+    return domain, targets, kind, probe_domain, port, interval
+
+
+def task_form_response(task, kind, suggested=None, error=None):
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return render_template("_task_form.html", task=task, kind=kind,
+                               suggested=suggested, form_error=error, modal_form=True), 422 if error else 200
+    if error:
+        flash(str(error), "error")
+    return render_template("task_form.html", task=task, kind=kind, suggested=suggested,
+                           form_error=None, modal_form=False)
+
+
+def task_saved(message):
+    flash(message, "success")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"redirect": url_for("index")})
+    return redirect(url_for("index"))
 
 
 @app.route("/tasks/new", methods=["GET", "POST"])
@@ -338,12 +368,12 @@ def new_task():
             with db() as con:
                 con.execute("INSERT INTO tasks (domain,ip,record_type,schedule,run_at,next_run_at,created_at) VALUES (?,?,?,?,?,?,?)",
                             (domain, target, kind, schedule, run_at, run_at, utcnow()))
-            flash("任务已创建", "success")
-            return redirect(url_for("index"))
+            return task_saved("任务已创建")
         except ValueError as exc:
-            flash(str(exc), "error")
-    return render_template("task_form.html", task=None, kind="scheduled",
-                           suggested=datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(hours=1))
+            return task_form_response(None, "scheduled",
+                datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(hours=1), exc)
+    return task_form_response(None, "scheduled",
+        datetime.now(TZ).replace(second=0, microsecond=0) + timedelta(hours=1))
 
 
 @app.route("/tasks/probe/new", methods=["GET", "POST"])
@@ -351,18 +381,17 @@ def new_task():
 def new_probe_task():
     if request.method == "POST":
         try:
-            domain, target, kind, probe_domain, port, interval = parse_probe_task(request.form)
+            domain, targets, kind, probe_domain, port, interval = parse_probe_task(request.form)
             now = utcnow()
             with db() as con:
                 con.execute("""INSERT INTO tasks
-                    (domain,ip,record_type,schedule,run_at,next_run_at,created_at,kind,probe_domain,probe_port,interval_minutes)
-                    VALUES (?,?,?,'daily',?,?,?,'probe',?,?,?)""",
-                    (domain, target, kind, now, now, now, probe_domain, port, interval))
-            flash("探测任务已创建，将很快开始首次探测", "success")
-            return redirect(url_for("index"))
+                    (domain,ip,probe_targets,record_type,schedule,run_at,next_run_at,created_at,kind,probe_domain,probe_port,interval_minutes)
+                    VALUES (?,?,?,?,'daily',?,?,?,'probe',?,?,?)""",
+                    (domain, targets[0], "\n".join(targets), kind, now, now, now, probe_domain, port, interval))
+            return task_saved("探测任务已创建，将很快开始首次探测")
         except ValueError as exc:
-            flash(str(exc), "error")
-    return render_template("task_form.html", task=None, kind="probe", suggested=None)
+            return task_form_response(None, "probe", error=exc)
+    return task_form_response(None, "probe")
 
 
 @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
@@ -375,12 +404,12 @@ def edit_task(task_id):
     if request.method == "POST":
         try:
             if task["kind"] == "probe":
-                domain, target, kind, probe_domain, port, interval = parse_probe_task(request.form)
+                domain, targets, kind, probe_domain, port, interval = parse_probe_task(request.form)
                 next_run = utcnow()
                 with db() as con:
-                    cur = con.execute("""UPDATE tasks SET domain=?,ip=?,record_type=?,probe_domain=?,probe_port=?,interval_minutes=?,
+                    cur = con.execute("""UPDATE tasks SET domain=?,ip=?,probe_targets=?,record_type=?,probe_domain=?,probe_port=?,interval_minutes=?,
                         next_run_at=?,status='pending',last_probe_reachable=NULL WHERE id=? AND status!='running'""",
-                        (domain, target, kind, probe_domain, port, interval, next_run, task_id))
+                        (domain, targets[0], "\n".join(targets), kind, probe_domain, port, interval, next_run, task_id))
             else:
                 domain, target, kind, schedule, run_at = parse_task(request.form)
                 with db() as con:
@@ -389,12 +418,12 @@ def edit_task(task_id):
                         (domain, target, kind, schedule, run_at, run_at, task_id))
             if not cur.rowcount:
                 raise ValueError("任务正在执行，请稍后重试")
-            flash("任务已更新", "success")
-            return redirect(url_for("index"))
+            return task_saved("任务已更新")
         except ValueError as exc:
-            flash(str(exc), "error")
-    return render_template("task_form.html", task=task, kind=task["kind"],
-                           suggested=datetime.fromisoformat(task["run_at"]).astimezone(TZ) if task["kind"] == "scheduled" else None)
+            return task_form_response(task, task["kind"],
+                datetime.fromisoformat(task["run_at"]).astimezone(TZ) if task["kind"] == "scheduled" else None, exc)
+    return task_form_response(task, task["kind"],
+        datetime.fromisoformat(task["run_at"]).astimezone(TZ) if task["kind"] == "scheduled" else None)
 
 
 def claim_task(task_id, manual=False):
@@ -418,6 +447,7 @@ def execute_task(task_id, manual=False):
     result = "error"
     message = ""
     probe_reachable = None
+    selected_target = task["ip"]
     try:
         if task["kind"] == "probe":
             reachable, detail = tcp_reachable(task["probe_domain"], task["probe_port"])
@@ -428,14 +458,26 @@ def execute_task(task_id, manual=False):
                 message = f"探测正常：{task['probe_domain']}:{task['probe_port']} 可连接，未修改解析"
             else:
                 message = f"探测不通（{detail}）；"
+                selected_target = None
+                for candidate in (task["probe_targets"] or task["ip"]).splitlines():
+                    available, candidate_detail = tcp_reachable(candidate, task["probe_port"], attempts=1, timeout=1)
+                    if available:
+                        selected_target = candidate
+                        message += f"已选择可连接的备用目标 {candidate}；"
+                        break
+                    message += f"备用目标 {candidate} 不通（{candidate_detail}）；"
+                if selected_target is None:
+                    new_value = "—"
+                    raise ValueError("全部备用目标均不通，未修改解析")
         if result != "healthy":
+            new_value = selected_target
             with db() as con:
                 setting = con.execute("SELECT * FROM settings WHERE id=1").fetchone()
             if not setting:
                 raise ValueError("请先设置 DNS 服务的 AK 和 SK")
             old_ip, action = set_record(FERNET.decrypt(setting["ak"].encode()).decode(),
                                         FERNET.decrypt(setting["sk"].encode()).decode(),
-                                        setting["region"], task["domain"], task["ip"], task["record_type"])
+                                        setting["region"], task["domain"], selected_target, task["record_type"])
             result = "success"
             message += {"created": "已创建解析记录", "updated": "已更新解析记录", "unchanged": "解析值无变化"}[action]
     except Exception as exc:

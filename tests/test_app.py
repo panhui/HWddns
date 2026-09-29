@@ -194,6 +194,8 @@ class PanelTests(unittest.TestCase):
         with self.panel.db() as con:
             task_id = con.execute("SELECT id FROM tasks").fetchone()[0]
             self.assertIsNone(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0])
+            self.assertEqual(con.execute("SELECT probe_targets FROM tasks WHERE id=?", (task_id,)).fetchone()[0],
+                             "backup.example.com")
         self.assertIn("尚未探测", self.client.get("/").get_data(as_text=True))
         self.assertEqual(self.client.get(f"/tasks/{task_id}/edit").status_code, 200)
         with patch.object(self.panel, "tcp_reachable", return_value=(True, "ok")), \
@@ -210,9 +212,11 @@ class PanelTests(unittest.TestCase):
                 self.panel.FERNET.encrypt(b"AK").decode(),
                 self.panel.FERNET.encrypt(b"SK").decode(), "cn-north-4"))
         self.assertIn("最近一次探测连通", self.client.get("/").get_data(as_text=True))
-        with patch.object(self.panel, "tcp_reachable", return_value=(False, "连接超时")), \
+        with patch.object(self.panel, "tcp_reachable", side_effect=[(False, "连接超时"), (True, "ok")]) as probe, \
              patch.object(self.panel, "set_record", return_value=("primary.example.com.", "updated")) as cloud:
             self.assertTrue(self.panel.execute_task(task_id, manual=True))
+            self.assertEqual(probe.call_count, 2)
+            probe.assert_any_call("backup.example.com", 443, attempts=1, timeout=1)
             cloud.assert_called_once_with("AK", "SK", "cn-north-4", "home.example.com", "backup.example.com", "CNAME")
         with self.panel.db() as con:
             log = con.execute("SELECT * FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
@@ -225,7 +229,7 @@ class PanelTests(unittest.TestCase):
         with self.panel.db() as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM logs WHERE task_id=?", (task_id,)).fetchone()[0], 1)
         self.assertIn("最近一次探测不通", self.client.get("/").get_data(as_text=True))
-        with patch.object(self.panel, "tcp_reachable", return_value=(False, "连接超时")), \
+        with patch.object(self.panel, "tcp_reachable", side_effect=[(False, "连接超时"), (True, "ok")]), \
              patch.object(self.panel, "set_record", side_effect=ValueError("DNS 不可用")):
             self.assertFalse(self.panel.execute_task(task_id, manual=True))
         with self.panel.db() as con:
@@ -236,6 +240,94 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with self.panel.db() as con:
             self.assertIsNone(con.execute("SELECT last_probe_reachable FROM tasks WHERE id=?", (task_id,)).fetchone()[0])
+
+    def test_probe_targets_follow_order_and_preserve_dns_when_all_down(self):
+        targets = "203.0.113.10\n203.0.113.11\n203.0.113.12"
+        response = self.client.post("/tasks/probe/new", data={"csrf": self.csrf,
+            "probe_domain": "service.example.com", "probe_port": "58611",
+            "domain": "home.example.com", "record_type": "A",
+            "targets": targets, "interval_minutes": "5"})
+        self.assertEqual(response.status_code, 302)
+        with self.panel.db() as con:
+            task = con.execute("SELECT * FROM tasks").fetchone()
+            task_id = task["id"]
+            self.assertEqual(task["ip"], "203.0.113.10")
+            self.assertEqual(task["probe_targets"], targets)
+            con.execute("INSERT INTO settings VALUES (1,?,?,?)", (
+                self.panel.FERNET.encrypt(b"AK").decode(),
+                self.panel.FERNET.encrypt(b"SK").decode(), "cn-north-4"))
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertIn("共 3 个备用目标", page)
+        self.assertIn("data-task-modal", page)
+        self.assertNotIn('class="stats"', page)
+        with patch.object(self.panel, "tcp_reachable", side_effect=[
+                (False, "down"), (False, "down"), (True, "ok")]) as probe, \
+             patch.object(self.panel, "set_record", return_value=("203.0.113.9", "updated")) as cloud:
+            self.assertTrue(self.panel.execute_task(task_id))
+            self.assertEqual([call.args[0] for call in probe.call_args_list],
+                             ["service.example.com", "203.0.113.10", "203.0.113.11"])
+            cloud.assert_called_once_with("AK", "SK", "cn-north-4", "home.example.com", "203.0.113.11", "A")
+        with self.panel.db() as con:
+            log = con.execute("SELECT new_ip,message FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
+            self.assertEqual(log["new_ip"], "203.0.113.11")
+            self.assertIn("已选择可连接的备用目标 203.0.113.11", log["message"])
+        with patch.object(self.panel, "tcp_reachable", side_effect=[(False, "down")] * 4) as probe, \
+             patch.object(self.panel, "set_record") as cloud:
+            self.assertFalse(self.panel.execute_task(task_id, manual=True))
+            self.assertEqual(probe.call_count, 4)
+            cloud.assert_not_called()
+        with self.panel.db() as con:
+            log = con.execute("SELECT new_ip,result,message FROM logs WHERE task_id=? ORDER BY id DESC", (task_id,)).fetchone()
+            self.assertEqual((log["new_ip"], log["result"]), ("—", "error"))
+            self.assertIn("全部备用目标均不通，未修改解析", log["message"])
+
+    def test_probe_targets_validation_and_modal_forms(self):
+        ajax = {"X-Requested-With": "XMLHttpRequest"}
+        self.assertIn('name="targets"', self.client.get("/tasks/probe/new", headers=ajax).get_data(as_text=True))
+        base = {"csrf": self.csrf, "probe_domain": "service.example.com", "probe_port": "443",
+                "domain": "home.example.com", "record_type": "A", "interval_minutes": "5"}
+        for targets in ("", "not-an-ip", "203.0.113.10\n203.0.113.10",
+                        "\n".join(f"203.0.113.{number}" for number in range(10, 21))):
+            response = self.client.post("/tasks/probe/new", data={**base, "targets": targets}, headers=ajax)
+            self.assertEqual(response.status_code, 422)
+            self.assertIn('role="alert"', response.get_data(as_text=True))
+        response = self.client.post("/tasks/probe/new", data={**base,
+            "targets": "203.0.113.10\n203.0.113.11"}, headers=ajax)
+        self.assertEqual(response.json["redirect"], "/")
+        with self.panel.db() as con:
+            task_id = con.execute("SELECT id FROM tasks").fetchone()[0]
+        edit = self.client.get(f"/tasks/{task_id}/edit", headers=ajax).get_data(as_text=True)
+        self.assertIn("203.0.113.10\n203.0.113.11", edit)
+        response = self.client.post(f"/tasks/{task_id}/edit", data={**base,
+            "targets": "203.0.113.11\n203.0.113.10"}, headers=ajax)
+        self.assertEqual(response.json["redirect"], "/")
+        with self.panel.db() as con:
+            task = con.execute("SELECT ip,probe_targets FROM tasks WHERE id=?", (task_id,)).fetchone()
+            self.assertEqual(tuple(task), ("203.0.113.11", "203.0.113.11\n203.0.113.10"))
+        scheduled = self.client.get("/tasks/new", headers=ajax).get_data(as_text=True)
+        self.assertIn('name="run_at"', scheduled)
+        self.assertNotIn('name="targets"', scheduled)
+
+    def test_scheduled_task_modal_create_edit_and_validation(self):
+        ajax = {"X-Requested-With": "XMLHttpRequest"}
+        future = (datetime.now(self.panel.TZ) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+        form = {"csrf": self.csrf, "domain": "home.example.com", "record_type": "A",
+                "ip": "203.0.113.10", "schedule": "once", "run_at": future}
+        invalid = self.client.post("/tasks/new", data={**form, "ip": "invalid"}, headers=ajax)
+        self.assertEqual(invalid.status_code, 422)
+        self.assertIn('role="alert"', invalid.get_data(as_text=True))
+        created = self.client.post("/tasks/new", data=form, headers=ajax)
+        self.assertEqual(created.json["redirect"], "/")
+        with self.panel.db() as con:
+            task_id = con.execute("SELECT id FROM tasks").fetchone()[0]
+        edit = self.client.get(f"/tasks/{task_id}/edit", headers=ajax).get_data(as_text=True)
+        self.assertIn("home.example.com", edit)
+        changed = self.client.post(f"/tasks/{task_id}/edit", data={**form,
+            "ip": "203.0.113.11"}, headers=ajax)
+        self.assertEqual(changed.json["redirect"], "/")
+        with self.panel.db() as con:
+            self.assertEqual(con.execute("SELECT ip FROM tasks WHERE id=?", (task_id,)).fetchone()[0],
+                             "203.0.113.11")
 
     def test_pause_stops_automatic_run(self):
         future = (datetime.now(self.panel.TZ) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
@@ -270,6 +362,13 @@ class PanelTests(unittest.TestCase):
                 with self.panel.db() as upgraded:
                     row = upgraded.execute("SELECT kind,record_type,enabled,last_probe_reachable FROM tasks WHERE id=1").fetchone()
                     self.assertEqual(tuple(row), ("scheduled", "AAAA", 1, None))
+                    upgraded.execute("INSERT INTO tasks (domain,ip,schedule,run_at,next_run_at,created_at,status,kind,probe_domain,probe_port,interval_minutes) VALUES (?,?,?,?,?,?,'pending','probe',?,?,?)",
+                        ("home.example.com", "203.0.113.10", "daily", self.panel.utcnow(),
+                         self.panel.utcnow(), self.panel.utcnow(), "service.example.com", 443, 5))
+                self.panel.init_db()
+                with self.panel.db() as upgraded:
+                    self.assertEqual(upgraded.execute("SELECT probe_targets FROM tasks WHERE kind='probe'").fetchone()[0],
+                                     "203.0.113.10")
 
 
 if __name__ == "__main__":

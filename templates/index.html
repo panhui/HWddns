@@ -1,40 +1,33 @@
 {% extends 'base.html' %}
 {% block title %}任务总览{% endblock %}
 {% block content %}
-<div class="heading">
-  <div><div class="eyebrow">任务管理</div><h1>解析任务</h1><p class="muted">管理定时解析和故障切换，随时查看执行结果。</p></div>
-  <div class="heading-actions"><a class="button subtle" href="{{ url_for('new_probe_task') }}">＋ 添加探测任务</a><a class="button primary" href="{{ url_for('new_task') }}">＋ 添加定时任务</a></div>
-</div>
 {% if not configured %}<div class="notice">开始前请先 <a href="{{ url_for('settings') }}">设置 DNS 访问凭据</a>，再创建并执行任务。</div>{% endif %}
-<div class="stats">
-  <div class="stat card"><span>全部任务</span><strong>{{ tasks|length }}</strong></div>
-  <div class="stat card"><span>已开启</span><strong>{{ tasks|selectattr('enabled')|list|length }}</strong></div>
-  <div class="stat card"><span>时区</span><strong class="smaller">{{ tz_name }}</strong></div>
-</div>
 <section class="card table-card">
-  <div class="section-head"><div><h2>全部任务</h2><p class="muted">暂停、立即执行或编辑任务</p></div><a class="section-link" href="{{ url_for('ip_check') }}">检测 IP 连通性 →</a></div>
+  <div class="section-head"><div><h1>解析任务</h1><p class="muted">共 {{ tasks|length }} 条任务 · {{ tz_name }}</p></div><div class="heading-actions"><a class="button subtle" href="{{ url_for('new_probe_task') }}" data-task-modal>＋ 添加探测任务</a><a class="button primary" href="{{ url_for('new_task') }}" data-task-modal>＋ 添加定时任务</a></div></div>
   {% if tasks %}
   <div class="table-scroll"><table class="task-table"><thead><tr><th>解析域名</th><th>目标值</th><th>方式</th><th>下次执行</th><th>状态</th><th>操作</th></tr></thead><tbody>
   {% for task in tasks %}
   <tr>
     <td data-label="解析域名"><strong>{{ task.domain }}</strong><small>{{ task.record_type }} 记录</small></td>
-    <td data-label="目标值" class="mono">{{ task.ip }}</td>
+    <td data-label="目标值" class="mono">{{ task.ip }}{% if task.kind == 'probe' and task.probe_targets and task.probe_targets.splitlines()|length > 1 %}<small>共 {{ task.probe_targets.splitlines()|length }} 个备用目标</small>{% endif %}</td>
     <td data-label="方式">{% if task.kind == 'probe' %}<div class="probe-target"><span>探测 {{ task.probe_domain }}:{{ task.probe_port }}</span>{% if task.last_probe_reachable == 1 %}<span class="probe-indicator up" role="img" aria-label="最近一次探测连通" title="最近一次探测连通">✓</span>{% elif task.last_probe_reachable == 0 %}<span class="probe-indicator down" role="img" aria-label="最近一次探测不通" title="最近一次探测不通">×</span>{% else %}<span class="probe-indicator unknown" role="img" aria-label="尚未探测" title="尚未探测">—</span>{% endif %}</div><small>每 {{ task.interval_minutes }} 分钟</small>{% else %}{{ '每日' if task.schedule == 'daily' else '单次' }}{% endif %}</td>
     <td data-label="下次执行">{{ task.next_run_at|localtime }}</td>
     <td data-label="状态"><span class="pill {{ 'paused' if not task.enabled else task.status }}">{{ '已暂停' if not task.enabled else {'pending':'待执行','running':'执行中','done':'已完成','error':'失败'}[task.status] }}</span></td>
     <td data-label="操作"><div class="actions">
       <form method="post" action="{{ url_for('toggle_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button">{{ '暂停' if task.enabled else '开启' }}</button></form>
       <form method="post" action="{{ url_for('run_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button action-main">立即执行</button></form>
-      <a href="{{ url_for('edit_task',task_id=task.id) }}">编辑</a><a href="{{ url_for('task_logs',task_id=task.id) }}">日志</a>
+      <a href="{{ url_for('edit_task',task_id=task.id) }}" data-task-modal>编辑</a><a href="{{ url_for('task_logs',task_id=task.id) }}">日志</a>
       <form method="post" action="{{ url_for('delete_task',task_id=task.id) }}" onsubmit="return confirm('确定删除此任务及其日志？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button danger">删除</button></form>
     </div></td>
   </tr>
   {% endfor %}
   </tbody></table></div>
-  {% else %}<div class="empty"><div class="empty-icon">＋</div><h3>还没有任务</h3><p>选择一种任务，开始管理解析。</p><div class="empty-actions"><a class="button primary" href="{{ url_for('new_task') }}">添加定时任务</a><a class="button subtle" href="{{ url_for('new_probe_task') }}">添加探测任务</a></div></div>{% endif %}
+  {% else %}<div class="empty"><div class="empty-icon">＋</div><h3>还没有任务</h3><p>点击列表右上角的按钮，添加第一条任务。</p></div>{% endif %}
 </section>
 {% if recent %}
 <section class="card table-card recent"><div class="section-head"><div><h2>最近执行</h2><p class="muted">最新 8 条记录</p></div></div>
 <div class="table-scroll"><table><thead><tr><th>执行时间</th><th>域名</th><th>解析变更</th><th>结果</th></tr></thead><tbody>{% for log in recent %}<tr><td>{{ log.executed_at|localtime }}</td><td>{{ log.domain }}</td><td class="mono">{{ log.old_ip }} → {{ log.new_ip }}</td><td><span class="pill {{ log.result }}">{{ '成功' if log.result == 'success' else '失败' }}</span></td></tr>{% endfor %}</tbody></table></div></section>
 {% endif %}
+<dialog id="task-dialog" class="task-dialog" aria-labelledby="task-dialog-title"></dialog>
+<script src="{{ url_for('static', filename='task_modal.js') }}" defer></script>
 {% endblock %}
