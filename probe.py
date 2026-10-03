@@ -22,5 +22,5 @@ def scan_tcp_ports(host, start_port, end_port):
     """Check a bounded port range concurrently, returning results in port order."""
     ports = range(start_port, end_port + 1)
     with ThreadPoolExecutor(max_workers=min(16, len(ports))) as executor:
-        checks = executor.map(lambda port: tcp_reachable(host, port, attempts=1, timeout=1), ports)
+        checks = executor.map(lambda port: tcp_reachable(host, port, attempts=1, timeout=3), ports)
         return [(port, reachable, detail) for port, (reachable, detail) in zip(ports, checks)]

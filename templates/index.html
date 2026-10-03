@@ -7,14 +7,14 @@
   {% if tasks %}
   <div class="table-scroll"><table class="task-table"><thead><tr><th>解析域名</th><th>目标值</th><th>方式</th><th>下次执行</th><th>状态</th><th>操作</th></tr></thead><tbody>
   {% for task in tasks %}
-  <tr>
+  <tr class="{{ 'task-paused' if not task.enabled else '' }}">
     <td data-label="解析域名"><strong>{{ task.domain }}</strong><small>{{ task.record_type }} 记录</small></td>
     <td data-label="目标值" class="mono">{{ task.ip }}{% if task.kind == 'probe' and task.probe_targets and task.probe_targets.splitlines()|length > 1 %}<small>共 {{ task.probe_targets.splitlines()|length }} 个备用目标</small>{% endif %}</td>
     <td data-label="方式">{% if task.kind == 'probe' %}<div class="probe-target"><span>探测 {{ task.probe_domain }}:{{ task.probe_port }}</span>{% if task.last_probe_reachable == 1 %}<span class="probe-indicator up" role="img" aria-label="最近一次探测连通" title="最近一次探测连通">✓</span>{% elif task.last_probe_reachable == 0 %}<span class="probe-indicator down" role="img" aria-label="最近一次探测不通" title="最近一次探测不通">×</span>{% else %}<span class="probe-indicator unknown" role="img" aria-label="尚未探测" title="尚未探测">—</span>{% endif %}</div><small>每 {{ task.interval_minutes }} 分钟</small>{% else %}{{ '每日' if task.schedule == 'daily' else '单次' }}{% endif %}</td>
     <td data-label="下次执行">{{ task.next_run_at|localtime }}</td>
     <td data-label="状态"><span class="pill {{ 'paused' if not task.enabled else task.status }}">{{ '已暂停' if not task.enabled else {'pending':'待执行','running':'执行中','done':'已完成','error':'失败'}[task.status] }}</span></td>
     <td data-label="操作"><div class="actions">
-      <form method="post" action="{{ url_for('toggle_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button">{{ '暂停' if task.enabled else '开启' }}</button></form>
+      <form method="post" action="{{ url_for('toggle_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="link-button task-toggle" aria-label="{{ '暂停任务' if task.enabled else '开启任务' }}" title="{{ '暂停任务' if task.enabled else '开启任务' }}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">{% if task.enabled %}<rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect>{% else %}<path d="M7 4a1 1 0 0 1 1.5-.86l13 8a1 1 0 0 1 0 1.72l-13 8A1 1 0 0 1 7 20z"></path>{% endif %}</svg></button></form>
       <form method="post" action="{{ url_for('run_task',task_id=task.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button action-main">立即执行</button></form>
       <a href="{{ url_for('edit_task',task_id=task.id) }}" data-task-modal>编辑</a><a href="{{ url_for('task_logs',task_id=task.id) }}">日志</a>
       <form method="post" action="{{ url_for('delete_task',task_id=task.id) }}" onsubmit="return confirm('确定删除此任务及其日志？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button danger">删除</button></form>

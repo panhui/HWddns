@@ -73,13 +73,13 @@ class PanelTests(unittest.TestCase):
             probe.assert_not_called()
             response = self.client.post("/ip-check", data={"csrf": self.csrf,
                 "ip": " 2001:db8::1 ", "port": "443"})
-            probe.assert_called_once_with("2001:db8::1", 443, attempts=1, timeout=1)
+            probe.assert_called_once_with("2001:db8::1", 443, attempts=1, timeout=3)
             self.assertIn('class="result-status up"', response.get_data(as_text=True))
             probe.reset_mock()
             response = self.client.post("/ip-check", data={"csrf": self.csrf,
                 "ip": " Service.Example.Com. ", "port": "58611"})
             self.assertIn('class="result-status up"', response.get_data(as_text=True))
-            probe.assert_called_once_with("service.example.com", 58611, attempts=1, timeout=1)
+            probe.assert_called_once_with("service.example.com", 58611, attempts=1, timeout=3)
 
     def test_ip_range_check_validation_and_results(self):
         self.assertEqual(self.client.post("/ip-check", data={"mode": "range", "ip": "127.0.0.1",

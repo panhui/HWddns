@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}IP 可用性检测{% endblock %}
 {% block content %}
-<div class="heading"><div><div class="eyebrow">网络工具</div><h1>IP 可用性检测</h1><p class="muted">输入 IP 地址或域名，从本面板所在服务器检测 TCP 连通性。</p></div></div>
+<div class="heading"><div><div class="eyebrow">网络工具</div><h1>IP 可用性检测</h1><p class="muted">输入 IP 地址或域名，从本面板所在服务器检测 TCP 连通性，每次连接最多等待 3 秒。</p></div></div>
 <div class="check-grid">
   <form method="post" class="card form-card stack check-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='正在检测…';">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="single">

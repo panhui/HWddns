@@ -211,7 +211,7 @@ def ip_check():
                     raise ValueError("请输入有效的端口，范围为 1 到 65535") from exc
                 if not 1 <= port <= 65535:
                     raise ValueError("端口需在 1 到 65535 之间")
-                reachable, detail = tcp_reachable(address, port, attempts=1, timeout=1)
+                reachable, detail = tcp_reachable(address, port, attempts=1, timeout=3)
                 single_result = {"ip": address, "port": port, "reachable": reachable,
                                  "detail": detail, "checked_at": checked_at}
             elif mode == "range":
